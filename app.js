@@ -13,6 +13,34 @@ import { promisify } from 'util';
 
 const execPromise = promisify(exec);
 
+// Session backup/restore helpers
+// Saves auth_info_baileys as base64 JSON to a backup file so sessions survive Railway restarts
+const SESSION_BACKUP_PATH = '/tmp/wa_session_backup.json';
+
+function backupSession(authDir) {
+    try {
+        if (!fs.existsSync(authDir)) return;
+        const files = {};
+        fs.readdirSync(authDir).forEach(f => {
+            files[f] = fs.readFileSync(path.join(authDir, f), 'base64');
+        });
+        fs.writeFileSync(SESSION_BACKUP_PATH, JSON.stringify(files));
+    } catch(e) { console.error('Session backup failed:', e.message); }
+}
+
+function restoreSession(authDir) {
+    try {
+        if (!fs.existsSync(SESSION_BACKUP_PATH)) return false;
+        if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+        const files = JSON.parse(fs.readFileSync(SESSION_BACKUP_PATH, 'utf8'));
+        Object.entries(files).forEach(([name, b64]) => {
+            fs.writeFileSync(path.join(authDir, name), Buffer.from(b64, 'base64'));
+        });
+        console.log('[Session] Restored session from backup.');
+        return true;
+    } catch(e) { console.error('Session restore failed:', e.message); return false; }
+}
+
 // Resolve __dirname in ES module context
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -270,6 +298,45 @@ app.post('/api/send', async (req, res) => {
     }
 });
 
+app.post('/api/export-session', (req, res) => {
+    const authDir = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
+    try {
+        if (!fs.existsSync(authDir)) {
+            return res.status(404).json({ success: false, message: 'No session to export.' });
+        }
+        const files = {};
+        fs.readdirSync(authDir).forEach(f => {
+            files[f] = fs.readFileSync(path.join(authDir, f), 'base64');
+        });
+        res.json({ success: true, session: Buffer.from(JSON.stringify(files)).toString('base64') });
+    } catch(e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+app.post('/api/import-session', async (req, res) => {
+    const { session } = req.body;
+    if (!session) return res.status(400).json({ success: false, message: 'No session data provided.' });
+    const authDir = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
+    try {
+        const files = JSON.parse(Buffer.from(session, 'base64').toString('utf8'));
+        if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+        Object.entries(files).forEach(([name, b64]) => {
+            fs.writeFileSync(path.join(authDir, name), Buffer.from(b64, 'base64'));
+        });
+        // Also update the /tmp backup
+        fs.writeFileSync(SESSION_BACKUP_PATH, JSON.stringify(files));
+        addLog('Session imported. Reconnecting...');
+        if (sock) { try { sock.end(); } catch(e) {} sock = null; }
+        connectionStatus = 'Disconnected';
+        isConnecting = false;
+        setTimeout(() => connectToWhatsApp(), 1000);
+        res.json({ success: true, message: 'Session imported. Reconnecting now.' });
+    } catch(e) {
+        res.status(500).json({ success: false, message: 'Invalid session data: ' + e.message });
+    }
+});
+
 // Socket connection listener
 io.on('connection', (socket) => {
     socket.emit('status', { status: connectionStatus });
@@ -289,6 +356,12 @@ async function connectToWhatsApp() {
 
     // Use AUTH_DIR env var for Railway persistent volume, fallback to local
     const authStateDir = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
+    
+    // Attempt to restore session from /tmp backup if auth dir is empty or missing
+    if (!fs.existsSync(authStateDir) || fs.readdirSync(authStateDir).length === 0) {
+        restoreSession(authStateDir);
+    }
+    
     const { state, saveCreds } = await useMultiFileAuthState(authStateDir);
     
     // Fetch latest WhatsApp Web version to prevent protocol mismatch errors (e.g. error code 405/411)
@@ -318,7 +391,11 @@ async function connectToWhatsApp() {
             logger: pino({ level: 'silent' }),
         });
 
-        sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('creds.update', async () => {
+            await saveCreds();
+            // Also back up to /tmp so session survives Railway container restarts
+            backupSession(authStateDir);
+        });
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
@@ -365,6 +442,10 @@ async function connectToWhatsApp() {
                 isConnecting = false;
                 connectionStatus = 'Connected';
                 qrCodeBase64 = null;
+                // Backup fresh session immediately after successful QR scan
+                backupSession(authStateDir);
+                addLog('WhatsApp Connection established successfully!');
+
                 io.emit('status', { status: connectionStatus });
                 io.emit('qr', { qr: null });
                 addLog('WhatsApp Connection established successfully!');

@@ -555,6 +555,41 @@
             }
         }
 
+        // Session management
+        async function exportSession() {
+            try {
+                const res = await fetch('/api/export-session', { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) return alert('Export failed: ' + data.message);
+                // Download as file
+                const a = document.createElement('a');
+                a.href = 'data:text/plain;base64,' + btoa(data.session);
+                a.download = 'wa_session_backup.txt';
+                a.click();
+                alert('Session saved! Keep wa_session_backup.txt safe. Use Import to restore it after Railway restarts.');
+            } catch(e) { alert('Export error: ' + e.message); }
+        }
+
+        async function importSession() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.txt';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                const session = atob(text.trim());
+                const res = await fetch('/api/import-session', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ session })
+                });
+                const data = await res.json();
+                alert(data.message || (data.success ? 'Session imported!' : 'Import failed'));
+            };
+            input.click();
+        }
+
         socket.on('status', (data) => {
             const container = document.getElementById('status-container');
             const text = document.getElementById('status-text');
@@ -568,8 +603,11 @@
                     <div style="color: var(--color-connected); font-size: 40px; margin-bottom: 12px;">✓</div>
                     <div style="font-weight: 600; font-size: 16px;">WhatsApp Connected</div>
                     <div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">Bot is active and listening for incoming messages.</div>
-                    <button onclick="logoutAndRescan()" style="margin-top:16px; padding: 10px 22px; background: linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; letter-spacing:0.3px;">⟳ Logout &amp; Re-scan QR</button>
-                    <div style="color: var(--text-secondary); font-size: 11px; margin-top: 6px;">Use this if auto-replies stop working</div>
+                    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; justify-content:center;">
+                        <button onclick="exportSession()" style="padding: 10px 18px; background: linear-gradient(135deg, #6366f1, #4f46e5); color:#fff; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer;">💾 Save Session</button>
+                        <button onclick="logoutAndRescan()" style="padding: 10px 18px; background: linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer;">⟳ Logout &amp; Re-scan</button>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 11px; margin-top: 8px;">Save Session = backup your login. Re-scan = fix if replies stop working.</div>
                 `;
             } else if (data.status === 'Connecting') {
                 qrPanel.innerHTML = `
