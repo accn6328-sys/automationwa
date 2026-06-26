@@ -194,6 +194,9 @@ app.post('/api/logout', async (req, res) => {
         if (fs.existsSync(authStateDir)) {
             fs.rmSync(authStateDir, { recursive: true, force: true });
         }
+        if (fs.existsSync(SESSION_BACKUP_PATH)) {
+            fs.unlinkSync(SESSION_BACKUP_PATH);
+        }
         connectionStatus = 'Disconnected';
         isConnecting = false;
         qrCodeBase64 = null;
@@ -207,6 +210,7 @@ app.post('/api/logout', async (req, res) => {
         // Force clear even if logout() fails
         const authStateDir = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
         try { if (fs.existsSync(authStateDir)) fs.rmSync(authStateDir, { recursive: true, force: true }); } catch(e) {}
+        try { if (fs.existsSync(SESSION_BACKUP_PATH)) fs.unlinkSync(SESSION_BACKUP_PATH); } catch(e) {}
         sock = null;
         connectionStatus = 'Disconnected';
         isConnecting = false;
@@ -443,6 +447,14 @@ async function connectToWhatsApp() {
                         addLog('Session directory cleared successfully.');
                     } catch (e) {
                         addLog(`Failed to clear session directory: ${e.message}`);
+                    }
+                    try {
+                        if (fs.existsSync(SESSION_BACKUP_PATH)) {
+                            fs.unlinkSync(SESSION_BACKUP_PATH);
+                            addLog('Session backup file cleared successfully.');
+                        }
+                    } catch (e) {
+                        addLog(`Failed to clear session backup file: ${e.message}`);
                     }
                     addLog('Restarting connection for fresh QR code in 3 seconds...');
                     setTimeout(() => connectToWhatsApp(), 3000);
