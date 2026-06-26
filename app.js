@@ -11,6 +11,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import ffmpegPath from 'ffmpeg-static';
 
 const execPromise = promisify(exec);
 
@@ -62,7 +63,7 @@ async function convertToOggOpus(base64Data) {
         fs.writeFileSync(inputPath, buffer);
         
         // Transcode WebM/MP4 audio to Mono, 48kHz, Opus codec OGG container for WhatsApp compatibility
-        const command = `ffmpeg -y -i "${inputPath}" -vn -c:a libopus -b:a 48k -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
+        const command = `"${ffmpegPath}" -y -i "${inputPath}" -vn -c:a libopus -b:a 48k -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
         await execPromise(command);
         
         const oggBuffer = fs.readFileSync(outputPath);

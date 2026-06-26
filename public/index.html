@@ -737,9 +737,19 @@
             
             const reader = new FileReader();
             reader.onload = (e) => {
-                ruleImageBase64 = e.target.result;
-                previewImg.src = ruleImageBase64;
-                previewContainer.style.display = "flex";
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    // Export to highly-compatible jpeg
+                    ruleImageBase64 = canvas.toDataURL('image/jpeg', 0.85);
+                    previewImg.src = ruleImageBase64;
+                    previewContainer.style.display = "flex";
+                };
+                img.src = e.target.result;
             };
             reader.readAsDataURL(file);
         }
@@ -996,9 +1006,19 @@
             
             const reader = new FileReader();
             reader.onload = (e) => {
-                imageBase64 = e.target.result;
-                previewImg.src = imageBase64;
-                previewContainer.style.display = "flex";
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    // Export to highly-compatible jpeg
+                    imageBase64 = canvas.toDataURL('image/jpeg', 0.85);
+                    previewImg.src = imageBase64;
+                    previewContainer.style.display = "flex";
+                };
+                img.src = e.target.result;
             };
             reader.readAsDataURL(file);
         }
