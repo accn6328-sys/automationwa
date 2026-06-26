@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason, getUrlInfo } from '@whiskeysockets/baileys';
 import { getLinkPreview } from 'link-preview-js';
 import pino from 'pino';
 import express from 'express';
@@ -392,17 +392,26 @@ app.post('/api/send', async (req, res) => {
             let linkPreview = undefined;
             
             if (urls && urls.length > 0) {
-                const url = urls[0];
+                // Give time for the link to load as requested by the user
+                addLog(`Link detected in manual message. Delaying for 3 seconds to let the link load...`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
                 try {
-                    const previewData = await getLinkPreview(url);
-                    linkPreview = {
-                        'canonical-url': previewData.url || url,
-                        'matched-text': url,
-                        title: previewData.title || '',
-                        description: previewData.description || '',
-                    };
+                    linkPreview = await getUrlInfo(text, {
+                        uploadImage: sock.waUploadToServer
+                    });
                 } catch (urlErr) {
-                    addLog(`Failed to generate link preview: ${urlErr.message}`);
+                    addLog(`Failed to generate link preview using getUrlInfo: ${urlErr.message}`);
+                    // Fallback to link-preview-js if getUrlInfo fails
+                    try {
+                        const previewData = await getLinkPreview(urls[0]);
+                        linkPreview = {
+                            'canonical-url': previewData.url || urls[0],
+                            'matched-text': urls[0],
+                            title: previewData.title || '',
+                            description: previewData.description || '',
+                        };
+                    } catch (fallbackErr) {}
                 }
             }
             
@@ -513,7 +522,10 @@ async function connectToWhatsApp() {
             defaultQueryTimeoutMs: undefined,
             // Keep connection alive
             keepAliveIntervalMs: 25000,
+            // Generate high quality link preview
+            generateHighQualityLinkPreview: true,
         });
+
 
         sock.ev.on('creds.update', async () => {
             await saveCreds();
@@ -724,19 +736,29 @@ async function connectToWhatsApp() {
                                 let linkPreview = undefined;
                                 
                                 if (urls && urls.length > 0) {
-                                    const url = urls[0];
+                                    // Give time for the link to load as requested by the user
+                                    addLog(`Link detected in auto-reply. Delaying for 3 seconds to let the link load...`);
+                                    await delay(3000);
+                                    
                                     try {
-                                        const previewData = await getLinkPreview(url);
-                                        linkPreview = {
-                                            'canonical-url': previewData.url || url,
-                                            'matched-text': url,
-                                            title: previewData.title || '',
-                                            description: previewData.description || '',
-                                        };
+                                        linkPreview = await getUrlInfo(replyText, {
+                                            uploadImage: sock.waUploadToServer
+                                        });
                                     } catch (urlErr) {
-                                        addLog(`Failed to generate link preview: ${urlErr.message}`);
+                                        addLog(`Failed to generate auto-reply link preview: ${urlErr.message}`);
+                                        // Fallback
+                                        try {
+                                            const previewData = await getLinkPreview(urls[0]);
+                                            linkPreview = {
+                                                'canonical-url': previewData.url || urls[0],
+                                                'matched-text': urls[0],
+                                                title: previewData.title || '',
+                                                description: previewData.description || '',
+                                            };
+                                        } catch (fallbackErr) {}
                                     }
                                 }
+
                                 
                                 const msgContent = { text: replyText };
                                 if (linkPreview) {
