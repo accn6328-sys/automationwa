@@ -68,7 +68,7 @@ async function convertToOggOpus(base64Data) {
         const oggBuffer = fs.readFileSync(outputPath);
         return oggBuffer;
     } catch (err) {
-        console.error(`[FFmpeg Error] ${err.message}`);
+        addLog(`[FFmpeg Error] ${err.message}`);
         // Fallback to sending raw buffer if transcode fails
         return Buffer.from(base64Data.split(',')[1] || base64Data, 'base64');
     } finally {
@@ -247,9 +247,12 @@ app.post('/api/send', async (req, res) => {
         // 1. Send image if provided
         if (image) {
             const imgBuffer = Buffer.from(image.split(',')[1] || image, 'base64');
+            const mimeMatch = image.match(/^data:([^;]+);base64,/);
+            const mimetype = mimeMatch ? mimeMatch[1] : 'image/jpeg';
             // If text is provided and there is no voice note, send the text as caption
             await sock.sendMessage(jid, { 
                 image: imgBuffer, 
+                mimetype: mimetype,
                 caption: voice ? undefined : text 
             });
             addLog(`Image successfully sent to: ${jid}`);
@@ -544,10 +547,13 @@ async function connectToWhatsApp() {
                                 await delay(2000); // Simulate upload/processing time
                                 
                                 const imgBuffer = Buffer.from(replyImage.split(',')[1] || replyImage, 'base64');
+                                const mimeMatch = replyImage.match(/^data:([^;]+);base64,/);
+                                const mimetype = mimeMatch ? mimeMatch[1] : 'image/jpeg';
                                 await sock.sendMessage(senderJid, { 
                                     image: imgBuffer, 
+                                    mimetype: mimetype,
                                     caption: replyVoice ? undefined : replyText 
-                                }, { quoted: quotedMsg });
+                                });
                                 addLog(`Auto-reply sent image to ${senderName}.`);
                                 
                                 await setPresence('paused');
@@ -565,7 +571,7 @@ async function connectToWhatsApp() {
                                     audio: voiceBuffer, 
                                     mimetype: 'audio/ogg; codecs=opus', 
                                     ptt: true 
-                                }, { quoted: quotedMsg });
+                                });
                                 addLog(`Auto-reply sent voice note to ${senderName}.`);
                                 
                                 await setPresence('paused');
@@ -576,7 +582,7 @@ async function connectToWhatsApp() {
                                     const typingDuration = Math.min(1500 + replyText.length * 15, 6000);
                                     await delay(typingDuration);
                                     
-                                    await sock.sendMessage(senderJid, { text: replyText }, { quoted: quotedMsg });
+                                    await sock.sendMessage(senderJid, { text: replyText });
                                     addLog(`Auto-reply sent text message separately to ${senderName}.`);
                                     
                                     await setPresence('paused');
@@ -612,7 +618,7 @@ async function connectToWhatsApp() {
                                 if (linkPreview) {
                                     msgContent.linkPreview = linkPreview;
                                 }
-                                await sock.sendMessage(senderJid, msgContent, { quoted: quotedMsg });
+                                await sock.sendMessage(senderJid, msgContent);
                                 addLog(`Auto-reply sent text to ${senderName}.`);
                                 
                                 await setPresence('paused');
