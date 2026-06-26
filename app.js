@@ -178,6 +178,36 @@ app.post('/api/keywords', (req, res) => {
     }
 });
 
+app.post('/api/keywords/save-rule', (req, res) => {
+    const { key, rule } = req.body;
+    if (!key) {
+        return res.status(400).json({ success: false, message: 'Keyword trigger is required.' });
+    }
+    const kwMap = loadKeywords();
+    kwMap[key] = rule;
+    if (saveKeywords(kwMap)) {
+        res.json({ success: true, message: 'Rule saved successfully.' });
+        io.emit('keywords', kwMap);
+    } else {
+        res.status(500).json({ success: false, message: 'Failed to save rule.' });
+    }
+});
+
+app.post('/api/keywords/delete-rule', (req, res) => {
+    const { key } = req.body;
+    if (!key) {
+        return res.status(400).json({ success: false, message: 'Keyword trigger is required.' });
+    }
+    const kwMap = loadKeywords();
+    delete kwMap[key];
+    if (saveKeywords(kwMap)) {
+        res.json({ success: true, message: 'Rule deleted successfully.' });
+        io.emit('keywords', kwMap);
+    } else {
+        res.status(500).json({ success: false, message: 'Failed to delete rule.' });
+    }
+});
+
 app.get('/api/logs', (req, res) => {
     res.json(logs);
 });
@@ -549,6 +579,7 @@ async function connectToWhatsApp() {
                                 const imgBuffer = Buffer.from(replyImage.split(',')[1] || replyImage, 'base64');
                                 const mimeMatch = replyImage.match(/^data:([^;]+);base64,/);
                                 const mimetype = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                                addLog(`Image buffer size: ${imgBuffer.length} bytes, mimetype: ${mimetype}`);
                                 await sock.sendMessage(senderJid, { 
                                     image: imgBuffer, 
                                     mimetype: mimetype,

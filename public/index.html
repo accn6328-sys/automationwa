@@ -898,20 +898,35 @@
                 delete updatedKeywords[editingKey];
             }
             
-            updatedKeywords[key] = {
-                text: reply || null,
-                image: ruleImageBase64 || null,
-                voice: ruleVoiceBase64 || null
-            };
-            
             try {
-                const res = await fetch('/api/keywords', {
+                if (editingKey && editingKey !== key) {
+                    await fetch('/api/keywords/delete-rule', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: editingKey })
+                    });
+                    delete currentKeywords[editingKey];
+                }
+
+                const res = await fetch('/api/keywords/save-rule', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updatedKeywords)
+                    body: JSON.stringify({
+                        key: key,
+                        rule: {
+                            text: reply || null,
+                            image: ruleImageBase64 || null,
+                            voice: ruleVoiceBase64 || null
+                        }
+                    })
                 });
                 const data = await res.json();
                 if (data.success) {
+                    currentKeywords[key] = {
+                        text: reply || null,
+                        image: ruleImageBase64 || null,
+                        voice: ruleVoiceBase64 || null
+                    };
                     closeModal();
                 } else {
                     alert('Error saving rule: ' + data.message);
@@ -943,17 +958,16 @@
             const key = keyToDelete;
             closeConfirmModal();
 
-            const updatedKeywords = { ...currentKeywords };
-            delete updatedKeywords[key];
-
             try {
-                const res = await fetch('/api/keywords', {
+                const res = await fetch('/api/keywords/delete-rule', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updatedKeywords)
+                    body: JSON.stringify({ key: key })
                 });
                 const data = await res.json();
-                if (!data.success) {
+                if (data.success) {
+                    delete currentKeywords[key];
+                } else {
                     alert('Error deleting rule: ' + data.message);
                 }
             } catch (err) {
