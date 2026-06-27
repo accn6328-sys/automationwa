@@ -249,17 +249,16 @@ def find_client_secrets_file() -> str:
             log("ERROR", f"Failed to write client_secrets.json from env var: {exc}")
 
     # 3. Built-in fallback (base64-encoded to avoid accidental exposure in logs)
-    # Decode: base64.b64encode(json.dumps({...}).encode()).decode()
     _B64 = (
-        "eyJ3ZWIiOnsiY2xpZW50X2lkIjoiOTgxNjIwNzg0MzgxLWdsdDQ4dW4ya3RqMTJ0MTMz"
-        "N3FxdDgzaW8xYmFydDg0LmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwicHJvamVj"
-        "dF9pZCI6ImRldi1zZXR0aW5nLTQ1OTUxMC1kNSIsImF1dGhfdXJpIjoiaHR0cHM6Ly9h"
-        "Y2NvdW50cy5nb29nbGUuY29tL28vb2F1dGgyL2F1dGgiLCJ0b2tlbl91cmkiOiJodHRw"
-        "czovL29hdXRoMi5nb29nbGVhcGlzLmNvbS90b2tlbiIsImF1dGhfcHJvdmlkZXJfeDUw"
-        "OV9jZXJ0X3VybCI6Imh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL29hdXRoMi92MS9j"
-        "ZXJ0cyIsImNsaWVudF9zZWNyZXQiOiJHT0NTUFgtS29pRUhLTk9OSWxrUjA4RWRvNEpv"
-        "UWoxaWNjUSIsInJlZGlyZWN0X3VyaXMiOlsiaHR0cHM6Ly93aGF0c2FwcGJvdC1wcm9k"
-        "dWN0aW9uLWQ4MWMudXAucmFpbHdheS5hcHAveXQvIl19fQ=="
+        "eyJ3ZWIiOiB7ImNsaWVudF9pZCI6ICI5ODE2MjA3ODQzODEtZ2x0NDh1bjJrdGoxMnQxMzM3"
+        "cXF0ODNpbzFiYXJ0ODQuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCAicHJvamVjdF9p"
+        "ZCI6ICJkZXYtc2V0dGluZy00NTk1MTAtZDUiLCAiYXV0aF91cmkiOiAiaHR0cHM6Ly9hY2Nv"
+        "dW50cy5nb29nbGUuY29tL28vb2F1dGgyL2F1dGgiLCAidG9rZW5fdXJpIjogImh0dHBzOi8v"
+        "b2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VuIiwgImF1dGhfcHJvdmlkZXJfeDUwOV9jZXJ0"
+        "X3VybCI6ICJodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9vYXV0aDIvdjEvY2VydHMiLCAi"
+        "Y2xpZW50X3NlY3JldCI6ICJHT0NTUFgtS29pRUhLTk9OSWxrUjA4RWRvNEpvUWoxaWNjUSIs"
+        "ICJyZWRpcmVjdF91cmlzIjogWyJodHRwczovL3doYXRzYXBwYm90LXByb2R1Y3Rpb24tZDgx"
+        "Yy51cC5yYWlsd2F5LmFwcC95dC8iXX19"
     )
     target = os.path.join(SCRIPT_DIR, "client_secrets.json")
     try:
