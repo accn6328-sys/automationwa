@@ -353,10 +353,7 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// ── Proxy /yt/* → Python Flask YT bot ───────────────────────────────────────
 app.use('/yt', createProxyMiddleware({
     target: `http://127.0.0.1:${YT_BOT_PORT}`,
     changeOrigin: true,
@@ -383,6 +380,11 @@ app.use('/fb', createProxyMiddleware({
         }
     }
 }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// ── Proxy /yt/* → Python Flask YT bot ───────────────────────────────────────
+
 
 app.use(express.static(path.join(__dirname, 'public')));
 

@@ -833,10 +833,7 @@ HTML = """
     AutoReply
   </div>
   <div style="display:flex;align-items:center;gap:16px">
-    <div class="platform-tabs">
-      <a href="/" class="platform-tab active">Facebook</a>
-      <a href="/instagram" class="platform-tab">Instagram</a>
-    </div>
+    <!-- Removed platform tabs since Instagram is handled by SuperProfile -->
     <button class="btn btn-primary" onclick="openModal()">+ Create Automation</button>
   </div>
 </header>
@@ -1393,10 +1390,7 @@ INSTAGRAM_HTML = """
 <header>
   <div class="logo">📷 Instagram AutoDM</div>
   <div style="display:flex;align-items:center;gap:16px">
-    <div class="platform-tabs">
-      <a href="/" class="platform-tab">Facebook</a>
-      <a href="/instagram" class="platform-tab active">Instagram</a>
-    </div>
+    <!-- Removed platform tabs since Instagram is handled by SuperProfile -->
     <button class="btn btn-primary" onclick="openModal()">+ Create Automation</button>
   </div>
 </header>
