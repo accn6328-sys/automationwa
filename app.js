@@ -190,38 +190,48 @@ function startYTBot() {
 
     console.log('[YT Bot] Starting Python Flask YT bot on internal port', YT_BOT_PORT);
     
-    // Use gunicorn in production (Railway), fallback to python directly
-    const useGunicorn = process.env.RAILWAY_ENVIRONMENT === 'production';
+    const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
     
-    let ytProc;
-    if (useGunicorn) {
-        ytProc = spawn('python3', [
-            '-m', 'gunicorn',
-            '--chdir', YT_BOT_DIR,
-            '--bind', `0.0.0.0:${YT_BOT_PORT}`,
-            '--workers', '1',
-            '--threads', '2',
-            '--timeout', '120',
-            'app:app'
-        ], { stdio: 'pipe', env: { ...process.env } });
-    } else {
-        const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
-        ytProc = spawn(pythonBin, [ytAppPath], {
-            stdio: 'pipe',
-            cwd: YT_BOT_DIR,
-            env: { ...process.env, FLASK_PORT: String(YT_BOT_PORT) }
-        });
-    }
+    const ytProc = spawn(pythonBin, ['app.py'], {
+        stdio: 'pipe',
+        cwd: YT_BOT_DIR,
+        env: { ...process.env, FLASK_PORT: String(YT_BOT_PORT) }
+    });
     
-    ytProc.stdout.on('data', d => process.stdout.write(`[YT Bot] ${d}`));
-    ytProc.stderr.on('data', d => process.stderr.write(`[YT Bot] ${d}`));
+    let ytErrorBuffer = [];
+    
+    ytProc.stdout.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.log(`[YT Bot] ${text}`);
+            if (text.includes('[LAUNCH]') || text.includes('Running')) {
+                addLog(`[YT Bot] ${text}`);
+            }
+        }
+    });
+    
+    ytProc.stderr.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.error(`[YT Bot] ${text}`);
+            ytErrorBuffer.push(text);
+            if (ytErrorBuffer.length > 30) ytErrorBuffer.shift();
+        }
+    });
+    
     ytProc.on('close', code => {
-        console.log(`[YT Bot] Process exited with code ${code}. Restarting in 5s...`);
+        addLog(`❌ [YT Bot] Subprocess exited with code ${code}.`);
+        if (ytErrorBuffer.length > 0) {
+            addLog(`❌ [YT Bot] Crash logs:`);
+            ytErrorBuffer.forEach(line => addLog(`   👉 ${line}`));
+        }
+        addLog(`[YT Bot] Restarting in 5 seconds...`);
         ytBotProcess = null;
         setTimeout(startYTBot, 5000);
     });
+    
     ytProc.on('error', err => {
-        console.error('[YT Bot] Spawn error:', err.message);
+        addLog(`❌ [YT Bot] Spawn error: ${err.message}`);
     });
     
     ytBotProcess = ytProc;
