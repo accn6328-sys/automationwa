@@ -525,12 +525,37 @@ def index():
             cf = find_client_secrets_file()
             redirect_uri = get_oauth_redirect_uri()
             flow = Flow.from_client_secrets_file(cf, scopes=SCOPES, redirect_uri=redirect_uri)
+            
+            # Retrieve code_verifier to support PKCE (required by newer google-auth-oauthlib)
+            code_verifier = session.get("code_verifier")
+            if not code_verifier:
+                # Try fallback file
+                verifier_file = os.path.join(SCRIPT_DIR, "code_verifier.tmp")
+                if os.path.exists(verifier_file):
+                    try:
+                        with open(verifier_file, "r", encoding="utf-8") as f:
+                            code_verifier = f.read().strip()
+                        log("INFO", "Restored code_verifier from fallback file.")
+                    except Exception as e:
+                        log("WARNING", f"Failed to read code_verifier fallback file: {e}")
+            
+            if code_verifier:
+                flow.code_verifier = code_verifier
+
             # Flask runs behind a reverse proxy — request.url uses http:// internally.
             # Google's oauth lib requires https://, so we force it.
             auth_response = request.url
             if auth_response.startswith("http://"):
                 auth_response = "https://" + auth_response[7:]
             flow.fetch_token(authorization_response=auth_response)
+
+            # Cleanup fallback code_verifier file if exists
+            try:
+                verifier_file = os.path.join(SCRIPT_DIR, "code_verifier.tmp")
+                if os.path.exists(verifier_file):
+                    os.remove(verifier_file)
+            except Exception:
+                pass
 
             with open(TOKEN_FILE, "w", encoding="utf-8") as f:
                 f.write(flow.credentials.to_json())
@@ -558,6 +583,16 @@ def auth_start():
         flow = Flow.from_client_secrets_file(cf, scopes=SCOPES, redirect_uri=redirect_uri)
         auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
         session["state"] = state
+        
+        # Persist code_verifier to session and fallback file for PKCE compliance
+        if hasattr(flow, "code_verifier") and flow.code_verifier:
+            session["code_verifier"] = flow.code_verifier
+            try:
+                with open(os.path.join(SCRIPT_DIR, "code_verifier.tmp"), "w", encoding="utf-8") as f:
+                    f.write(flow.code_verifier)
+            except Exception as e:
+                log("WARNING", f"Failed to write code_verifier fallback file: {e}")
+                
         return redirect(auth_url)
     except Exception as e:
         log("ERROR", f"OAuth init failed: {e}")
