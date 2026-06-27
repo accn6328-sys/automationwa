@@ -1746,8 +1746,16 @@ document.getElementById('modal-overlay').onclick=e=>{if(e.target===document.getE
 
 @app.route("/")
 def dashboard():
-    # Automatically prefix all static API endpoints for reverse proxy (/fb) support
-    prefixed_html = HTML.replace("'/ui/", "'/fb/ui/").replace('"/ui/', '"/fb/ui/').replace("'/instagram", "'/fb/instagram").replace('"/instagram', '"/fb/instagram')
+    # Prefix all API endpoints and local dashboard tab links for reverse proxy /fb support
+    prefixed_html = (
+        HTML
+        .replace("'/ui/", "'/fb/ui/")
+        .replace('"/ui/', '"/fb/ui/')
+        .replace("'/instagram", "'/fb/instagram")
+        .replace('"/instagram', '"/fb/instagram')
+        .replace('href="/"', 'href="/fb/"')
+        .replace('href="/instagram"', 'href="/fb/instagram"')
+    )
     return render_template_string(prefixed_html, keywords=load_keywords(), automations=load_automations())
 
 @app.route("/ui/fetch-posts")
@@ -1813,8 +1821,18 @@ def delete_keyword(keyword):
 
 @app.route("/instagram")
 def instagram_dashboard():
+    # Prefix all API endpoints and local dashboard tab links for reverse proxy /fb support
+    prefixed_html = (
+        INSTAGRAM_HTML
+        .replace("'/ui/", "'/fb/ui/")
+        .replace('"/ui/', '"/fb/ui/')
+        .replace("'/instagram", "'/fb/instagram")
+        .replace('"/instagram', '"/fb/instagram')
+        .replace('href="/"', 'href="/fb/"')
+        .replace('href="/instagram"', 'href="/fb/instagram"')
+    )
     return render_template_string(
-        INSTAGRAM_HTML,
+        prefixed_html,
         keywords=load_ig_keywords(),
         automations=load_ig_automations(),
         stats=load_ig_stats(),
