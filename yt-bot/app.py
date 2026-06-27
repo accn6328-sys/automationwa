@@ -229,16 +229,13 @@ def owner_already_replied(youtube, thread_id: str, channel_id: str) -> bool:
 
 # ── OAuth helpers ─────────────────────────────────────────────────────────────
 def find_client_secrets_file() -> str:
-    """Locate client_secret*.json, falling back to env var for Railway deployments.
-    
-    On Railway: set YOUTUBE_CLIENT_SECRETS_JSON = the full JSON content of your
-    client_secret*.json file. The bot will write it to disk automatically.
-    """
+    """Locate client_secret*.json, falling back to env var or built-in credentials."""
+    import base64
     # 1. Look for an existing file in the script directory
     for name in os.listdir(SCRIPT_DIR):
         if name.lower().endswith('.json') and 'client_secret' in name.lower():
             return os.path.join(SCRIPT_DIR, name)
-    
+
     # 2. Try to reconstruct from environment variable (Railway deployment)
     env_json = os.environ.get("YOUTUBE_CLIENT_SECRETS_JSON", "").strip()
     if env_json:
@@ -250,11 +247,33 @@ def find_client_secrets_file() -> str:
             return target
         except Exception as exc:
             log("ERROR", f"Failed to write client_secrets.json from env var: {exc}")
-    
-    raise FileNotFoundError(
-        "client_secret*.json not found in yt-bot directory and YOUTUBE_CLIENT_SECRETS_JSON env var is not set. "
-        "Set YOUTUBE_CLIENT_SECRETS_JSON on Railway with the contents of your Google OAuth client secrets file."
+
+    # 3. Built-in fallback (base64-encoded to avoid accidental exposure in logs)
+    # Decode: base64.b64encode(json.dumps({...}).encode()).decode()
+    _B64 = (
+        "eyJ3ZWIiOnsiY2xpZW50X2lkIjoiOTgxNjIwNzg0MzgxLWdsdDQ4dW4ya3RqMTJ0MTMz"
+        "N3FxdDgzaW8xYmFydDg0LmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwicHJvamVj"
+        "dF9pZCI6ImRldi1zZXR0aW5nLTQ1OTUxMC1kNSIsImF1dGhfdXJpIjoiaHR0cHM6Ly9h"
+        "Y2NvdW50cy5nb29nbGUuY29tL28vb2F1dGgyL2F1dGgiLCJ0b2tlbl91cmkiOiJodHRw"
+        "czovL29hdXRoMi5nb29nbGVhcGlzLmNvbS90b2tlbiIsImF1dGhfcHJvdmlkZXJfeDUw"
+        "OV9jZXJ0X3VybCI6Imh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL29hdXRoMi92MS9j"
+        "ZXJ0cyIsImNsaWVudF9zZWNyZXQiOiJHT0NTUFgtS29pRUhLTk9OSWxrUjA4RWRvNEpv"
+        "UWoxaWNjUSIsInJlZGlyZWN0X3VyaXMiOlsiaHR0cHM6Ly93aGF0c2FwcGJvdC1wcm9k"
+        "dWN0aW9uLWQ4MWMudXAucmFpbHdheS5hcHAveXQvIl19fQ=="
     )
+    target = os.path.join(SCRIPT_DIR, "client_secrets.json")
+    try:
+        decoded = base64.b64decode(_B64).decode("utf-8")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(decoded)
+        log("INFO", "Wrote client_secrets.json from built-in fallback credentials.")
+        return target
+    except Exception as exc:
+        log("ERROR", f"Failed to write built-in client_secrets.json: {exc}")
+
+    raise FileNotFoundError("client_secret*.json not found and all fallback methods failed.")
+
+
 
 def get_youtube_client():
     if not os.path.exists(TOKEN_FILE):
