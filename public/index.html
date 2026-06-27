@@ -109,6 +109,9 @@
         <button id="tab-insta-btn" class="tab-btn" onclick="switchTab('insta')">
             &#x1F4F8; Instagram Bot <span class="tab-badge">SuperProfile</span>
         </button>
+        <button id="tab-fb-btn" class="tab-btn" onclick="switchTab('fb')">
+            &#x1F4F2; Facebook Bot <span class="tab-badge">Auto-Reply</span>
+        </button>
     </div>
 
     <div id="tab-wa" class="tab-panel active">
@@ -309,6 +312,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
 let ytIframeLoaded = false;
+let fbIframeLoaded = false;
 function switchTab(tab) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -319,9 +323,18 @@ function switchTab(tab) {
         iframe.src = iframe.dataset.src;
         ytIframeLoaded = true;
     }
+    if (tab === 'fb' && !fbIframeLoaded) {
+        const iframe = document.getElementById('fb-iframe');
+        iframe.src = iframe.dataset.src;
+        fbIframeLoaded = true;
+    }
 }
 function onYTIframeLoad() {
     const overlay = document.getElementById('yt-loading');
+    if (overlay) { overlay.classList.add('hidden'); setTimeout(() => overlay.style.display = 'none', 400); }
+}
+function onFBIframeLoad() {
+    const overlay = document.getElementById('fb-loading');
     if (overlay) { overlay.classList.add('hidden'); setTimeout(() => overlay.style.display = 'none', 400); }
 }
 

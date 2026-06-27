@@ -16,3 +16,11 @@ yt-bot/__pycache__/
 yt-bot/*.pyc
 # Never commit OAuth client secrets to git
 yt-bot/client_secret*.json
+
+# FB bot runtime files (sensitive/large)
+fb-bot/replied.json
+fb-bot/ig_replied.json
+fb-bot/ig_stats.json
+fb-bot/__pycache__/
+fb-bot/*.pyc
+

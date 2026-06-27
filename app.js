@@ -181,6 +181,10 @@ const YT_BOT_DIR = path.join(__dirname, 'yt-bot');
 const YT_BOT_PORT = parseInt(PORT) + 1;
 let ytBotProcess = null;
 
+const FB_BOT_DIR = path.join(__dirname, 'fb-bot');
+const FB_BOT_PORT = parseInt(PORT) + 2;
+let fbBotProcess = null;
+
 function findPythonBinary() {
     if (process.platform === 'win32') return 'python';
     
@@ -284,6 +288,63 @@ function startYTBot() {
     ytBotProcess = ytProc;
 }
 
+function startFBBot() {
+    const fbAppPath = path.join(FB_BOT_DIR, 'app.py');
+    if (!fs.existsSync(fbAppPath)) {
+        console.log('[FB Bot] fb-bot/app.py not found — skipping FB bot startup.');
+        return;
+    }
+
+    const pythonBin = findPythonBinary();
+    console.log(`[FB Bot] Using python executable: ${pythonBin}`);
+    addLog(`[FB Bot] Found python binary: ${pythonBin}`);
+    console.log('[FB Bot] Starting Python Flask FB bot on internal port', FB_BOT_PORT);
+    
+    const fbProc = spawn(pythonBin, ['app.py'], {
+        stdio: 'pipe',
+        cwd: FB_BOT_DIR,
+        env: { ...process.env, FLASK_PORT: String(FB_BOT_PORT) }
+    });
+    
+    let fbErrorBuffer = [];
+    
+    fbProc.stdout.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.log(`[FB Bot] ${text}`);
+            if (text.includes('[LAUNCH]') || text.includes('Running')) {
+                addLog(`[FB Bot] ${text}`);
+            }
+        }
+    });
+    
+    fbProc.stderr.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.error(`[FB Bot] ${text}`);
+            fbErrorBuffer.push(text);
+            if (fbErrorBuffer.length > 30) fbErrorBuffer.shift();
+        }
+    });
+    
+    fbProc.on('close', code => {
+        addLog(`❌ [FB Bot] Subprocess exited with code ${code}.`);
+        if (fbErrorBuffer.length > 0) {
+            addLog(`❌ [FB Bot] Crash logs:`);
+            fbErrorBuffer.forEach(line => addLog(`   👉 ${line}`));
+        }
+        addLog(`[FB Bot] Restarting in 5 seconds...`);
+        fbBotProcess = null;
+        setTimeout(startFBBot, 5000);
+    });
+    
+    fbProc.on('error', err => {
+        addLog(`❌ [FB Bot] Spawn error: ${err.message}`);
+    });
+    
+    fbBotProcess = fbProc;
+}
+
 // Server setup
 const app = express();
 const server = http.createServer(app);
@@ -305,6 +366,19 @@ app.use('/yt', createProxyMiddleware({
             console.error('[YT Proxy] Error:', err.message);
             if (!res.headersSent) {
                 res.status(502).send('<html><body style="background:#07090f;color:#ef4444;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><div style="font-size:2rem">⚠️</div><div style="margin-top:1rem;font-size:1rem">YT Bot is starting up...<br><small style="color:#64748b">Refresh in a few seconds</small></div></div></body></html>');
+            }
+        }
+    }
+}));
+
+app.use('/fb', createProxyMiddleware({
+    target: `http://127.0.0.1:${FB_BOT_PORT}`,
+    changeOrigin: true,
+    on: {
+        error: (err, req, res) => {
+            console.error('[FB Proxy] Error:', err.message);
+            if (!res.headersSent) {
+                res.status(502).send('<html><body style="background:#07090f;color:#ef4444;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><div style="font-size:2rem">⚠️</div><div style="margin-top:1rem;font-size:1rem">FB Bot is starting up...<br><small style="color:#64748b">Refresh in a few seconds</small></div></div></body></html>');
             }
         }
     }
@@ -930,5 +1004,6 @@ server.listen(PORT, () => {
     addLog(`Dashboard URL: http://localhost:${PORT}`);
     connectToWhatsApp();
     startYTBot();
+    startFBBot();
 });
 
