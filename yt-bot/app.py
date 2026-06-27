@@ -525,7 +525,13 @@ def index():
             cf = find_client_secrets_file()
             redirect_uri = get_oauth_redirect_uri()
             flow = Flow.from_client_secrets_file(cf, scopes=SCOPES, redirect_uri=redirect_uri)
-            flow.fetch_token(authorization_response=request.url)
+            # Flask runs behind a reverse proxy — request.url uses http:// internally.
+            # Google's oauth lib requires https://, so we force it.
+            auth_response = request.url
+            if auth_response.startswith("http://"):
+                auth_response = "https://" + auth_response[7:]
+            flow.fetch_token(authorization_response=auth_response)
+
             with open(TOKEN_FILE, "w", encoding="utf-8") as f:
                 f.write(flow.credentials.to_json())
             log("SUCCESS", "Google account linked successfully.")
