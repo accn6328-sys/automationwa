@@ -62,15 +62,55 @@ def save_keywords(data):
     with open(KEYWORDS_FILE, "w") as f:
         json.dump(data, f)
 
+
+# ── Default automation rules — seeded on fresh deploy ────────────────────────
+# These are the fallback rules written to automations.json when the file is
+# missing (e.g. after a Railway redeploy wipes the ephemeral filesystem).
+# Admins can override via the dashboard; those changes are saved back to disk.
+DEFAULT_FB_AUTOMATIONS = [
+    {
+        "name": "bottle cleaner",
+        "active": True,
+        "scope": "specific",
+        "post_ids": ["657207910809297_122182279484894047"],
+        "action": "both",
+        "keyword_type": "any",
+        "keywords": [],
+        "reply": "Thanks for your interest! 🧹 Check the link in bio for this amazing bottle cleaner.",
+        "dm_message": "Hi! Thanks for commenting on our bottle cleaner Reel 🙌 Here is the product link: https://radikikktiktok.shop/",
+        "thumbnail": ""
+    },
+    {
+        "name": "all posts fallback",
+        "active": True,
+        "scope": "all",
+        "post_ids": [],
+        "action": "both",
+        "keyword_type": "any",
+        "keywords": [],
+        "reply": "Thanks for commenting! 🙌 Check our page for amazing products.",
+        "dm_message": "Hi! Thanks for commenting on our page 😊 Visit us at: https://radikikktiktok.shop/",
+        "thumbnail": ""
+    }
+]
+
 def load_automations():
     if os.path.exists(AUTOMATIONS_FILE):
-        with open(AUTOMATIONS_FILE) as f:
-            return json.load(f)
-    return []
+        try:
+            with open(AUTOMATIONS_FILE) as f:
+                data = json.load(f)
+            if data:   # non-empty list → use it
+                return data
+        except Exception:
+            pass
+    # File missing or empty — seed defaults and persist them
+    save_automations(DEFAULT_FB_AUTOMATIONS)
+    return DEFAULT_FB_AUTOMATIONS
 
 def save_automations(data):
     with open(AUTOMATIONS_FILE, "w") as f:
         json.dump(data, f)
+
 
 # ── In-memory replied tracking (works on PythonAnywhere free plan) ────────────
 # Persists to a simple text file for restarts; in-memory for speed & safety
