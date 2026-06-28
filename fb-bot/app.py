@@ -26,9 +26,9 @@ app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/fb')
 
 
 VERIFY_TOKEN      = os.getenv("VERIFY_TOKEN", "myverifytoken")
-PAGE_ID           = os.getenv("PAGE_ID")
-PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
-IG_USER_ID        = os.getenv("IG_USER_ID")
+PAGE_ID           = os.getenv("PAGE_ID", "657207910809297")
+PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "EAAOEye5xXB4BRzz8MnN62XaqxROB40ES6qPY1PY0Vpf5jpZAjsCAu0ZCOs9cNQqRgZAp9NrKJp8bMtIOhe3bWPovQJFlwcYkDuLytihtDXKeqHQvoJQERMKQ5xPZCepNLve3G6jU1Dyb4rtZAPKv2MeqB2IqsEolCGe4tu9nYdC7ZB0nMLoOKZBvazjZCzDmS8ZBm6kIbE9ZBY")
+IG_USER_ID        = os.getenv("IG_USER_ID", "17841451641925459")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v19.0")
 GRAPH_URL         = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
