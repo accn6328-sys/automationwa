@@ -346,9 +346,9 @@ if (window.location.pathname.startsWith('/yt')) {
 }
 
 {% if authenticated %}
-document.addEventListener("DOMContentLoaded", () => {
-  fetchStatus();
-  fetchVideos();
+document.addEventListener("DOMContentLoaded", async () => {
+  await fetchStatus();
+  await fetchVideos();
   setInterval(fetchStatus, 4000);
 });
 {% endif %}
@@ -459,7 +459,7 @@ function renderVideos() {
   }
   c.innerHTML = "";
   S.videos.forEach(v => {
-    const cfg       = v.config || {rules:[], default_reply:""};
+    const cfg       = S.video_configs[v.id] || v.config || {rules:[], default_reply:"", any_comment_enabled:false, any_comment_reply:""};
     const isAuto    = v.automated;
     const hasRules  = v.has_rules;
     const dateStr   = v.published_at ? new Date(v.published_at).toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"}) : "";
@@ -542,9 +542,30 @@ function syncVideoStates() {
     // Reload has_rules from server data (updated after save)
     const serverVid = S.videos.find(x => x.id === v.id);
     const cfg = S.video_configs[v.id] || {};
-    const hasRules = !!(cfg.rules?.length || cfg.default_reply);
+    const hasRules = !!(cfg.rules?.length || cfg.default_reply || (cfg.any_comment_enabled && cfg.any_comment_reply?.trim()));
     const isAuto   = S.automated_video_ids.includes(v.id);
     if (sw && sw.checked !== isAuto) sw.checked = isAuto;
+
+    // Sync any_comment inputs dynamically if they exist and are not focused by user
+    const acSw = document.getElementById("ac-sw-" + v.id);
+    const acRp = document.getElementById("ac-rp-" + v.id);
+    const defEl = document.getElementById("def-" + v.id);
+
+    if (acSw && acSw.checked !== !!cfg.any_comment_enabled) {
+      acSw.checked = !!cfg.any_comment_enabled;
+    }
+    if (acRp && document.activeElement !== acRp) {
+      const serverVal = cfg.any_comment_reply || "";
+      if (acRp.value !== serverVal) {
+        acRp.value = serverVal;
+      }
+    }
+    if (defEl && document.activeElement !== defEl) {
+      const serverDef = cfg.default_reply || "";
+      if (defEl.value !== serverDef) {
+        defEl.value = serverDef;
+      }
+    }
 
     const statusKey = getVideoStatus(v.id, hasRules);
     if (badge) {
