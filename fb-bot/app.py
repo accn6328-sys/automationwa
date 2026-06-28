@@ -110,6 +110,7 @@ def mark_replied(comment_id):
 
 def fetch_page_posts(force=False):
     global _posts_cache, _posts_cache_time
+    global PAGE_ACCESS_TOKEN
     # Return cached posts if still fresh
     if not force and _posts_cache and (time.time() - _posts_cache_time) < POSTS_CACHE_TTL:
         print("[Cache] Returning cached posts")
@@ -137,7 +138,6 @@ def fetch_page_posts(force=False):
                 raise Exception(err_msg)
             
             # If we reached here, it succeeded! Update global config if needed
-            global PAGE_ACCESS_TOKEN
             if PAGE_ACCESS_TOKEN != token:
                 print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
                 PAGE_ACCESS_TOKEN = token
@@ -434,6 +434,7 @@ def discover_ig_user_id():
 
 def fetch_ig_media(force=False):
     global _ig_media_cache, _ig_media_cache_time
+    global PAGE_ACCESS_TOKEN
     if not force and _ig_media_cache and (time.time() - _ig_media_cache_time) < POSTS_CACHE_TTL:
         return _ig_media_cache
     if not IG_USER_ID:
@@ -460,7 +461,6 @@ def fetch_ig_media(force=False):
                 raise Exception(err_msg)
             
             # Success! Update global config if needed
-            global PAGE_ACCESS_TOKEN
             if PAGE_ACCESS_TOKEN != token:
                 print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
                 PAGE_ACCESS_TOKEN = token
