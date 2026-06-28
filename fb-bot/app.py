@@ -260,7 +260,9 @@ def handle_comment(value):
             continue
         scope = auto.get("scope", "all")
         if scope == "specific":
-            if post_id not in auto.get("post_ids", []):
+            clean_saved_ids = [pid.split("_")[-1] for pid in auto.get("post_ids", [])]
+            clean_webhook_pid = post_id.split("_")[-1]
+            if clean_webhook_pid not in clean_saved_ids:
                 continue
         kw_type = auto.get("keyword_type", "any")
         matched = False
