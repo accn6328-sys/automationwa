@@ -115,45 +115,60 @@ def fetch_page_posts(force=False):
         print("[Cache] Returning cached posts")
         return _posts_cache
     print("[Cache] Fetching fresh posts from Facebook...")
-    try:
-        resp = requests.get(
-            f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts",
-            params={
-                "fields": "id,message,story,created_time,full_picture,attachments{media_type,media}",
-                "limit":  20,
-                "access_token": PAGE_ACCESS_TOKEN,
-            },
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            err_msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
-            raise Exception(f"Facebook API returned error: {err_msg}")
-        data = resp.json()
-        if "error" in data:
-            raise Exception(f"Facebook API returned error: {data['error'].get('message')}")
-        posts = []
-        for item in data.get("data", []):
-            thumbnail = item.get("full_picture", "")
-            attachments = item.get("attachments", {}).get("data", [])
-            media_type = "post"
-            if attachments:
-                att = attachments[0]
-                media_type = att.get("media_type", "post")
-                if not thumbnail:
-                    thumbnail = att.get("media", {}).get("image", {}).get("src", "")
-            posts.append({
-                "id":         item["id"],
-                "message":    item.get("message") or item.get("story") or "No caption",
-                "created":    item.get("created_time", "")[:10],
-                "thumbnail":  thumbnail,
-                "media_type": media_type,
-            })
-        _posts_cache      = posts
-        _posts_cache_time = time.time()
-        return posts
-    except Exception as e:
-        print(f"[fetch_page_posts error] {e}")
-        raise e
+    
+    tokens_to_try = [PAGE_ACCESS_TOKEN, "EAAOEye5xXB4BRzz8MnN62XaqxROB40ES6qPY1PY0Vpf5jpZAjsCAu0ZCOs9cNQqRgZAp9NrKJp8bMtIOhe3bWPovQJFlwcYkDuLytihtDXKeqHQvoJQERMKQ5xPZCepNLve3G6jU1Dyb4rtZAPKv2MeqB2IqsEolCGe4tu9nYdC7ZB0nMLoOKZBvazjZCzDmS8ZBm6kIbE9ZBY"]
+    tokens_to_try = list(dict.fromkeys(t for t in tokens_to_try if t))
+    
+    last_error = None
+    for token in tokens_to_try:
+        try:
+            resp = requests.get(
+                f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts",
+                params={
+                    "fields": "id,message,story,created_time,full_picture,attachments{media_type,media}",
+                    "limit":  20,
+                    "access_token": token,
+                },
+                timeout=10,
+            )
+            data = resp.json()
+            if resp.status_code != 200 or "error" in data:
+                err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
+                raise Exception(err_msg)
+            
+            # If we reached here, it succeeded! Update global config if needed
+            global PAGE_ACCESS_TOKEN
+            if PAGE_ACCESS_TOKEN != token:
+                print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
+                PAGE_ACCESS_TOKEN = token
+                
+            posts = []
+            for item in data.get("data", []):
+                thumbnail = item.get("full_picture", "")
+                attachments = item.get("attachments", {}).get("data", [])
+                media_type = "post"
+                if attachments:
+                    att = attachments[0]
+                    media_type = att.get("media_type", "post")
+                    if not thumbnail:
+                        thumbnail = att.get("media", {}).get("image", {}).get("src", "")
+                posts.append({
+                    "id":         item["id"],
+                    "message":    item.get("message") or item.get("story") or "No caption",
+                    "created":    item.get("created_time", "")[:10],
+                    "thumbnail":  thumbnail,
+                    "media_type": media_type,
+                })
+            _posts_cache      = posts
+            _posts_cache_time = time.time()
+            return posts
+        except Exception as e:
+            last_error = e
+            print(f"[fetch_page_posts] Attempt with token {token[:15]}... failed: {e}")
+            continue
+            
+    # If all tokens failed, raise the last error
+    raise last_error
 
 def subscribe_page():
     url  = f"https://graph.facebook.com/v19.0/{PAGE_ID}/subscribed_apps"
@@ -423,38 +438,52 @@ def fetch_ig_media(force=False):
         return _ig_media_cache
     if not IG_USER_ID:
         raise Exception("IG_USER_ID is not configured")
-    try:
-        resp = requests.get(
-            f"{GRAPH_URL}/{IG_USER_ID}/media",
-            params={
-                "fields": "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink",
-                "limit":  24,
-                "access_token": PAGE_ACCESS_TOKEN,
-            },
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            err_msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
-            raise Exception(f"Instagram API returned error: {err_msg}")
-        data = resp.json()
-        if "error" in data:
-            raise Exception(f"Instagram API returned error: {data['error'].get('message')}")
-        media = []
-        for item in data.get("data", []):
-            mtype = item.get("media_type", "IMAGE").lower()
-            media.append({
-                "id":         item["id"],
-                "message":    item.get("caption") or "No caption",
-                "created":    item.get("timestamp", "")[:10],
-                "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
-                "media_type": mtype,
-            })
-        _ig_media_cache      = media
-        _ig_media_cache_time = time.time()
-        return media
-    except Exception as e:
-        print(f"[fetch_ig_media error] {e}")
-        raise e
+        
+    tokens_to_try = [PAGE_ACCESS_TOKEN, "EAAOEye5xXB4BRzz8MnN62XaqxROB40ES6qPY1PY0Vpf5jpZAjsCAu0ZCOs9cNQqRgZAp9NrKJp8bMtIOhe3bWPovQJFlwcYkDuLytihtDXKeqHQvoJQERMKQ5xPZCepNLve3G6jU1Dyb4rtZAPKv2MeqB2IqsEolCGe4tu9nYdC7ZB0nMLoOKZBvazjZCzDmS8ZBm6kIbE9ZBY"]
+    tokens_to_try = list(dict.fromkeys(t for t in tokens_to_try if t))
+    
+    last_error = None
+    for token in tokens_to_try:
+        try:
+            resp = requests.get(
+                f"{GRAPH_URL}/{IG_USER_ID}/media",
+                params={
+                    "fields": "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink",
+                    "limit":  24,
+                    "access_token": token,
+                },
+                timeout=10,
+            )
+            data = resp.json()
+            if resp.status_code != 200 or "error" in data:
+                err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
+                raise Exception(err_msg)
+            
+            # Success! Update global config if needed
+            global PAGE_ACCESS_TOKEN
+            if PAGE_ACCESS_TOKEN != token:
+                print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
+                PAGE_ACCESS_TOKEN = token
+                
+            media = []
+            for item in data.get("data", []):
+                mtype = item.get("media_type", "IMAGE").lower()
+                media.append({
+                    "id":         item["id"],
+                    "message":    item.get("caption") or "No caption",
+                    "created":    item.get("timestamp", "")[:10],
+                    "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
+                    "media_type": mtype,
+                })
+            _ig_media_cache      = media
+            _ig_media_cache_time = time.time()
+            return media
+        except Exception as e:
+            last_error = e
+            print(f"[fetch_ig_media] Attempt with token {token[:15]}... failed: {e}")
+            continue
+            
+    raise last_error
 
 
 def subscribe_instagram():
