@@ -125,7 +125,12 @@ def fetch_page_posts(force=False):
             },
             timeout=10,
         )
+        if resp.status_code != 200:
+            err_msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+            raise Exception(f"Facebook API returned error: {err_msg}")
         data = resp.json()
+        if "error" in data:
+            raise Exception(f"Facebook API returned error: {data['error'].get('message')}")
         posts = []
         for item in data.get("data", []):
             thumbnail = item.get("full_picture", "")
@@ -148,7 +153,7 @@ def fetch_page_posts(force=False):
         return posts
     except Exception as e:
         print(f"[fetch_page_posts error] {e}")
-        return _posts_cache  # return stale cache on error
+        raise e
 
 def subscribe_page():
     url  = f"https://graph.facebook.com/v19.0/{PAGE_ID}/subscribed_apps"
@@ -417,7 +422,7 @@ def fetch_ig_media(force=False):
     if not force and _ig_media_cache and (time.time() - _ig_media_cache_time) < POSTS_CACHE_TTL:
         return _ig_media_cache
     if not IG_USER_ID:
-        return _ig_media_cache
+        raise Exception("IG_USER_ID is not configured")
     try:
         resp = requests.get(
             f"{GRAPH_URL}/{IG_USER_ID}/media",
@@ -428,8 +433,14 @@ def fetch_ig_media(force=False):
             },
             timeout=10,
         )
+        if resp.status_code != 200:
+            err_msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+            raise Exception(f"Instagram API returned error: {err_msg}")
+        data = resp.json()
+        if "error" in data:
+            raise Exception(f"Instagram API returned error: {data['error'].get('message')}")
         media = []
-        for item in resp.json().get("data", []):
+        for item in data.get("data", []):
             mtype = item.get("media_type", "IMAGE").lower()
             media.append({
                 "id":         item["id"],
@@ -443,7 +454,7 @@ def fetch_ig_media(force=False):
         return media
     except Exception as e:
         print(f"[fetch_ig_media error] {e}")
-        return _ig_media_cache
+        raise e
 
 
 def subscribe_instagram():
@@ -1177,27 +1188,40 @@ function renderTags() {
 async function loadPostsGrid() {
   const grid = document.getElementById('posts-grid-modal');
   grid.innerHTML = '<div class="loading">Loading posts...</div>';
-  const res  = await fetch('/ui/fetch-posts');
-  const data = await res.json();
-  postsLoaded = true;
-  grid.innerHTML = '';
-  (data.posts || []).forEach(post => {
-    const div = document.createElement('div');
-    div.className = 'post-card' + (selectedPostIds[post.id] ? ' selected' : '');
-    div.innerHTML = `
-      <div class="post-check">✓</div>
-      ${post.thumbnail ? `<img src="${post.thumbnail}" onerror="this.style.display='none'">` : `<div class="post-thumb-ph">📄</div>`}
-      <div class="post-caption">${post.message.substring(0,40)}</div>`;
-    div.onclick = () => {
-      if (selectedPostIds[post.id]) { delete selectedPostIds[post.id]; div.classList.remove('selected'); }
-      else { selectedPostIds[post.id] = post; div.classList.add('selected'); }
-      const n = Object.keys(selectedPostIds).length;
-      document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
-    };
-    grid.appendChild(div);
-  });
-  const n = Object.keys(selectedPostIds).length;
-  document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
+  try {
+    const res  = await fetch('/ui/fetch-posts');
+    const data = await res.json();
+    postsLoaded = true;
+    grid.innerHTML = '';
+    if (data.error) {
+      grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600">Error: ${data.error}</div>`;
+      return;
+    }
+    const posts = data.posts || [];
+    if (posts.length === 0) {
+      grid.innerHTML = '<div style="color:#65676b;padding:20px;text-align:center">No posts found on this Page.</div>';
+      return;
+    }
+    posts.forEach(post => {
+      const div = document.createElement('div');
+      div.className = 'post-card' + (selectedPostIds[post.id] ? ' selected' : '');
+      div.innerHTML = `
+        <div class="post-check">✓</div>
+        ${post.thumbnail ? `<img src="${post.thumbnail}" onerror="this.style.display='none'">` : `<div class="post-thumb-ph">📄</div>`}
+        <div class="post-caption">${post.message.substring(0,40)}</div>`;
+      div.onclick = () => {
+        if (selectedPostIds[post.id]) { delete selectedPostIds[post.id]; div.classList.remove('selected'); }
+        else { selectedPostIds[post.id] = post; div.classList.add('selected'); }
+        const n = Object.keys(selectedPostIds).length;
+        document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
+      };
+      grid.appendChild(div);
+    });
+    const n = Object.keys(selectedPostIds).length;
+    document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
+  } catch (err) {
+    grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600">Request failed: ${err.message}</div>`;
+  }
 }
 
 async function nextStep() {
@@ -1645,13 +1669,29 @@ function showStep(n){
 }
 async function loadPostsGrid(){
   const grid=document.getElementById('posts-grid-modal'); grid.innerHTML='Loading...';
-  const r=await fetch('/instagram/ui/fetch-media'); const d=await r.json(); postsLoaded=true; grid.innerHTML='';
-  (d.posts||[]).forEach(post=>{
-    const div=document.createElement('div'); div.className='post-card'+(selectedPostIds[post.id]?' selected':'');
-    div.innerHTML=`<div class="post-check">✓</div>${post.thumbnail?`<img src="${post.thumbnail}">`:`<div class="post-thumb-ph">${post.media_type==='video'?'🎬':'📷'}</div>`}<div class="post-caption">${post.message.substring(0,35)}</div>`;
-    div.onclick=()=>{if(selectedPostIds[post.id]){delete selectedPostIds[post.id];div.classList.remove('selected');}else{selectedPostIds[post.id]=post;div.classList.add('selected');}document.getElementById('post-select-count').textContent=Object.keys(selectedPostIds).length+' selected';};
-    grid.appendChild(div);
-  });
+  try {
+    const r=await fetch('/instagram/ui/fetch-media');
+    const d=await r.json();
+    postsLoaded=true;
+    grid.innerHTML='';
+    if (d.error) {
+      grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600;font-size:13px">Error: ${d.error}</div>`;
+      return;
+    }
+    const posts = d.posts || [];
+    if (posts.length === 0) {
+      grid.innerHTML = '<div style="color:#65676b;padding:20px;text-align:center;font-size:13px">No Instagram media found.</div>';
+      return;
+    }
+    posts.forEach(post=>{
+      const div=document.createElement('div'); div.className='post-card'+(selectedPostIds[post.id]?' selected':'');
+      div.innerHTML=`<div class="post-check">✓</div>${post.thumbnail?`<img src="${post.thumbnail}">`:`<div class="post-thumb-ph">${post.media_type==='video'?'🎬':'📷'}</div>`}<div class="post-caption">${post.message.substring(0,35)}</div>`;
+      div.onclick=()=>{if(selectedPostIds[post.id]){delete selectedPostIds[post.id];div.classList.remove('selected');}else{selectedPostIds[post.id]=post;div.classList.add('selected');}document.getElementById('post-select-count').textContent=Object.keys(selectedPostIds).length+' selected';};
+      grid.appendChild(div);
+    });
+  } catch (err) {
+    grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600;font-size:13px">Request failed: ${err.message}</div>`;
+  }
 }
 async function nextStep(){
   const skipScope=['story','dm','welcome','mention'];
