@@ -856,28 +856,16 @@ async function connectToWhatsApp() {
             backupSession(authStateDir);
         });
 
-        // Sync contacts and chats list to maintain our active contacts database
+        // Sync chats list to maintain our active inbox contacts database
         sock.ev.on('chats.set', ({ chats }) => {
             if (chats) {
                 chats.forEach(c => addContact(c.id));
             }
         });
 
-        sock.ev.on('contacts.set', ({ contacts }) => {
-            if (contacts) {
-                contacts.forEach(c => addContact(c.id));
-            }
-        });
-
         sock.ev.on('chats.upsert', (chats) => {
             if (chats) {
                 chats.forEach(c => addContact(c.id));
-            }
-        });
-
-        sock.ev.on('contacts.upsert', (contacts) => {
-            if (contacts) {
-                contacts.forEach(c => addContact(c.id));
             }
         });
 
