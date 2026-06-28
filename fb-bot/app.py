@@ -1826,6 +1826,16 @@ document.getElementById('modal-overlay').onclick=e=>{if(e.target===document.getE
 """
 
 
+@app.route("/debug-token")
+def debug_token():
+    return jsonify({
+        "page_id": PAGE_ID,
+        "token_prefix": PAGE_ACCESS_TOKEN[:15] if PAGE_ACCESS_TOKEN else "None",
+        "fb_automations": load_automations(),
+        "ig_automations": load_ig_automations(),
+    })
+
+
 @app.route("/")
 def dashboard():
     # Prefix all API endpoints and local dashboard tab links for reverse proxy /fb support
