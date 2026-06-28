@@ -106,10 +106,12 @@
         <button id="tab-yt-btn" class="tab-btn" onclick="switchTab('yt')">
             &#x1F4FA; YouTube Bot <span class="tab-badge">Auto-Reply</span>
         </button>
+        <button id="tab-fb-btn" class="tab-btn" onclick="switchTab('fb')">
+            &#x1F4D9; Facebook Bot <span class="tab-badge">Meta API</span>
+        </button>
         <button id="tab-insta-btn" class="tab-btn" onclick="switchTab('insta')">
             &#x1F4F8; Instagram Bot <span class="tab-badge">SuperProfile</span>
         </button>
-
     </div>
 
     <div id="tab-wa" class="tab-panel active">
@@ -178,6 +180,16 @@
                 <div style="color:var(--text-secondary);font-size:14px">Loading YouTube Bot...</div>
             </div>
             <iframe id="yt-iframe" src="about:blank" data-src="/yt/" title="YouTube Auto-Reply Bot" onload="onYTIframeLoad()" allow="clipboard-write"></iframe>
+        </div>
+    </div>
+
+    <div id="tab-fb" class="tab-panel">
+        <div class="yt-iframe-wrapper">
+            <div id="fb-loading" class="yt-loading-overlay">
+                <div class="yt-spinner"></div>
+                <div style="color:var(--text-secondary);font-size:14px">Loading Facebook Bot...</div>
+            </div>
+            <iframe id="fb-iframe" src="about:blank" data-src="/fb/" title="Facebook & Instagram Auto-Reply Bot" onload="onFBIframeLoad()" allow="clipboard-write"></iframe>
         </div>
     </div>
 
