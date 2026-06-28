@@ -213,6 +213,23 @@ def send_dm(user_id, message):
     else:
         print(f"  [DM failed ❌] {result.get('error', {}).get('message', result)}")
 
+def send_private_reply(comment_id, message):
+    """
+    Send a private DM reply directly to a Facebook Page comment.
+    This works even if the user has never messaged the Page before.
+    """
+    print(f"  [Private Reply] Attempting to send to comment_id={comment_id}")
+    resp = requests.post(
+        f"https://graph.facebook.com/v19.0/{comment_id}/private_replies",
+        data={"message": message, "access_token": PAGE_ACCESS_TOKEN},
+        timeout=8
+    )
+    result = resp.json()
+    if result.get("success") or "id" in result:
+        print(f"  [Private Reply sent ✅]")
+    else:
+        print(f"  [Private Reply failed ❌] {result.get('error', {}).get('message', result)}")
+
 def handle_comment(value):
     if value.get("verb") != "add" or value.get("item") != "comment":
         return
@@ -262,8 +279,8 @@ def handle_comment(value):
             if action in ("comment", "both") and auto.get("reply"):
                 reply_to_comment(comment_id, auto["reply"])
 
-            if action in ("dm", "both") and auto.get("dm_message") and user_id:
-                send_dm(user_id, auto["dm_message"])
+            if action in ("dm", "both") and auto.get("dm_message"):
+                send_private_reply(comment_id, auto["dm_message"])
 
             mark_replied(dedup_key)   # ← prevent future duplicates
             break
