@@ -1825,7 +1825,13 @@ def dashboard():
 def fetch_posts_api():
     force = request.args.get("refresh") == "1"
     try:
-        return jsonify({"posts": fetch_page_posts(force=force)})
+        posts = fetch_page_posts(force=force)
+        try:
+            subscribe_page()
+            subscribe_instagram()
+        except Exception as sub_err:
+            print(f"[Webhook Auto-Subscribe] FAILED: {sub_err}")
+        return jsonify({"posts": posts})
     except Exception as e:
         return jsonify({"error": str(e), "posts": []})
 
@@ -1905,7 +1911,13 @@ def instagram_dashboard():
 def ig_fetch_media_api():
     force = request.args.get("refresh") == "1"
     try:
-        return jsonify({"posts": fetch_ig_media(force=force)})
+        media = fetch_ig_media(force=force)
+        try:
+            subscribe_page()
+            subscribe_instagram()
+        except Exception as sub_err:
+            print(f"[Webhook Auto-Subscribe] FAILED: {sub_err}")
+        return jsonify({"posts": media})
     except Exception as e:
         return jsonify({"error": str(e), "posts": []})
 
