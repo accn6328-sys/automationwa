@@ -878,7 +878,7 @@ async function connectToWhatsApp() {
         addLog(`Could not fetch latest WA version, using fallback: ${err.message}`);
     }
 
-    addLog('Initializing WhatsApp socket connection (with persistence)...');
+    addLog('Initializing WhatsApp socket connection (with active persistent volume)...');
     connectionStatus = 'Connecting';
     io.emit('status', { status: connectionStatus });
 
