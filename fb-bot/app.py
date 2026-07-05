@@ -652,7 +652,7 @@ def send_official_wa_message(to_number, text=None, image_base64=None, voice_base
         "recipient_type": "individual",
         "to": clean_to
     }
-    if image_base64:
+    if image_base64 and isinstance(image_base64, str) and len(image_base64) > 100:
         mime = "image/jpeg"
         if "image/png" in image_base64:
             mime = "image/png"
@@ -663,7 +663,7 @@ def send_official_wa_message(to_number, text=None, image_base64=None, voice_base
         payload["image"] = {"id": media_id}
         if text:
             payload["image"]["caption"] = text
-    elif voice_base64:
+    elif voice_base64 and isinstance(voice_base64, str) and len(voice_base64) > 100:
         mime = "audio/ogg"
         if "audio/webm" in voice_base64:
             mime = "audio/webm"

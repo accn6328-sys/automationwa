@@ -79,7 +79,7 @@ async function sendOfficialWAMessage(phoneId, token, number, text, image, voice)
         recipient_type: 'individual',
         to: cleanTo
     };
-    if (image) {
+    if (image && typeof image === 'string' && image.length > 100) {
         let mimeType = 'image/jpeg';
         let ext = 'jpg';
         const mimeMatch = image.match(/^data:([^;]+);base64,/);
@@ -91,7 +91,7 @@ async function sendOfficialWAMessage(phoneId, token, number, text, image, voice)
         payload.type = 'image';
         payload.image = { id: mediaId };
         if (text) payload.image.caption = text;
-    } else if (voice) {
+    } else if (voice && typeof voice === 'string' && voice.length > 100) {
         let mimeType = 'audio/ogg';
         let ext = 'ogg';
         const mimeMatch = voice.match(/^data:([^;]+);base64,/);
