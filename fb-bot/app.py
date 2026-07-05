@@ -660,8 +660,14 @@ def upload_wa_media(phone_id, token, base64_data, mime_type="image/jpeg"):
     if "," in base64_data:
         base64_data = base64_data.split(",")[1]
     file_bytes = base64.b64decode(base64_data)
+    ext = "jpg"
+    if "png" in mime_type: ext = "png"
+    elif "webp" in mime_type: ext = "webp"
+    elif "ogg" in mime_type: ext = "ogg"
+    elif "opus" in mime_type: ext = "opus"
+    
     files = {
-        "file": ("media_file", file_bytes, mime_type)
+        "file": (f"media_file.{ext}", file_bytes, mime_type)
     }
     data = {
         "messaging_product": "whatsapp"
@@ -702,22 +708,52 @@ def send_official_wa_message(to_number, text=None, image_base64=None, voice_base
         payload["image"] = {"id": media_id}
         if text:
             payload["image"]["caption"] = text
+            
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"Meta API Error Response: {err.response.text}", flush=True)
+            raise err
+            
     elif voice_base64 and isinstance(voice_base64, str) and len(voice_base64) > 100:
         transcoded_b64 = transcode_to_ogg_opus(voice_base64)
-        mime = "audio/ogg"
-        media_id = upload_wa_media(phone_id, token, transcoded_b64, mime)
+        media_id = upload_wa_media(phone_id, token, transcoded_b64, "audio/ogg")
         payload["type"] = "audio"
         payload["audio"] = {"id": media_id}
+        
+        try:
+            r1 = requests.post(url, headers=headers, json=payload, timeout=15)
+            r1.raise_for_status()
+            
+            # If text is also specified, send it as a second message
+            if text:
+                text_payload = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": clean_to,
+                    "type": "text",
+                    "text": {"body": text, "preview_url": True}
+                }
+                r2 = requests.post(url, headers=headers, json=text_payload, timeout=15)
+                r2.raise_for_status()
+                
+            return r1.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"Meta API Error Response: {err.response.text}", flush=True)
+            raise err
+            
     else:
         payload["type"] = "text"
         payload["text"] = {"body": text, "preview_url": True}
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except requests.exceptions.HTTPError as err:
-        print(f"Meta API Error Response: {err.response.text}", flush=True)
-        raise err
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"Meta API Error Response: {err.response.text}", flush=True)
+            raise err
 
 
 def handle_official_wa_message(msg, contact):

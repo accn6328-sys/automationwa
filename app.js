@@ -100,6 +100,42 @@ async function sendOfficialWAMessage(phoneId, token, number, text, image, voice)
         const mediaId = await uploadWAMedia(phoneId, token, base64Ogg, `audio_${Date.now()}.ogg`, 'audio/ogg');
         payload.type = 'audio';
         payload.audio = { id: mediaId };
+        
+        const response1 = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        if (!response1.ok) {
+            const errText = await response1.text();
+            throw new Error(`Audio delivery failed: ${errText}`);
+        }
+        
+        if (text) {
+            const textPayload = {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: cleanTo,
+                type: 'text',
+                text: { body: text, preview_url: true }
+            };
+            const response2 = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(textPayload)
+            });
+            if (!response2.ok) {
+                const errText = await response2.text();
+                throw new Error(`Separated text delivery failed: ${errText}`);
+            }
+        }
+        return await response1.json();
     } else {
         payload.type = 'text';
         payload.text = { body: text, preview_url: true };
