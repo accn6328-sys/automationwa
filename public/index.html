@@ -188,6 +188,45 @@
                     </div>
                     <button id="add-group-btn" class="btn" onclick="addAllToGroup()" style="margin-top:8px">&#x2795; Add All to Group</button>
                 </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        <span>Order Flow & Payment Settings</span>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--text-secondary);cursor:pointer;user-select:none">
+                            <input type="checkbox" id="flow-enabled" style="cursor:pointer"> Enabled
+                        </label>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:13px;line-height:1.4">
+                        Configure the multi-step transaction questions and templates triggered after a keyword response.
+                    </p>
+                    <div class="form-group">
+                        <label for="flow-payment-link">Online Payment Link</label>
+                        <input type="text" id="flow-payment-link" class="form-input" placeholder="e.g. https://payment-link.com">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                        <div class="form-group">
+                            <label for="flow-cod-label">COD Button Label</label>
+                            <input type="text" id="flow-cod-label" class="form-input" placeholder="Cash on Delivery">
+                        </div>
+                        <div class="form-group">
+                            <label for="flow-online-label">Online Button Label</label>
+                            <input type="text" id="flow-online-label" class="form-input" placeholder="Online Payment">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="flow-questions">Questions (One per line, format: key|prompt)</label>
+                        <textarea id="flow-questions" class="form-input" style="height:100px;font-family:monospace;font-size:12.5px" placeholder="name|What is your full name?&#10;address|What is your full delivery address?&#10;phone|What is your phone number?"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="flow-cod-template">COD Confirmation Template</label>
+                        <textarea id="flow-cod-template" class="form-input" style="height:80px;font-size:13px" placeholder="Thanks {name}! Your order is confirmed."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="flow-online-template">Online Confirmation Template</label>
+                        <textarea id="flow-online-template" class="form-input" style="height:80px;font-size:13px" placeholder="Thanks {name}! Please complete payment: {payment_link}"></textarea>
+                    </div>
+                    <button id="save-flow-btn" class="btn" onclick="saveOrderFlowSettings()" style="margin-top:8px">&#x1F4BE; Save Order Flow Settings</button>
+                </div>
             </div>
             <div class="card">
                 <div class="card-title">
@@ -450,6 +489,7 @@ function renderKeywords(data) {
     });
 }
 socket.on('keywords', (data) => { currentKeywords = data; renderKeywords(data); });
+socket.on('order-flow', (data) => { loadOrderFlowSettings(); });
 function filterKeywords() { renderKeywords(currentKeywords); }
 
 const consoleLogs = document.getElementById('console-logs');
@@ -627,6 +667,98 @@ async function addAllToGroup() {
     }
 }
 
+async function loadOrderFlowSettings() {
+    try {
+        const res = await fetch('/api/order-flow');
+        const config = await res.json();
+        
+        document.getElementById('flow-enabled').checked = !!config.enabled;
+        document.getElementById('flow-payment-link').value = config.payment_link || '';
+        document.getElementById('flow-cod-label').value = config.cod_label || '';
+        document.getElementById('flow-online-label').value = config.online_label || '';
+        
+        const qLines = (config.questions || []).map(q => `${q.key}|${q.prompt}`);
+        document.getElementById('flow-questions').value = qLines.join('\n');
+        
+        document.getElementById('flow-cod-template').value = config.cod_confirmation_template || '';
+        document.getElementById('flow-online-template').value = config.online_confirmation_template || '';
+    } catch (err) {
+        console.error('Failed to load order flow settings:', err);
+    }
+}
+
+async function saveOrderFlowSettings() {
+    const btn = document.getElementById('save-flow-btn');
+    const enabled = document.getElementById('flow-enabled').checked;
+    const payment_link = document.getElementById('flow-payment-link').value.trim();
+    const cod_label = document.getElementById('flow-cod-label').value.trim() || 'Cash on Delivery';
+    const online_label = document.getElementById('flow-online-label').value.trim() || 'Online Payment';
+    const questionsRaw = document.getElementById('flow-questions').value.trim();
+    const cod_confirmation_template = document.getElementById('flow-cod-template').value.trim();
+    const online_confirmation_template = document.getElementById('flow-online-template').value.trim();
+    
+    if (!payment_link) {
+        alert('Online Payment Link is required.');
+        return;
+    }
+    
+    const questions = [];
+    const lines = questionsRaw.split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const idx = trimmed.indexOf('|');
+        if (idx === -1) {
+            alert('Invalid question format: each line must be key|prompt. Example:\nname|What is your name?');
+            return;
+        }
+        const key = trimmed.substring(0, idx).trim();
+        const prompt = trimmed.substring(idx + 1).trim();
+        if (!key || !prompt) {
+            alert('Both key and prompt are required for each question.');
+            return;
+        }
+        questions.push({ key, prompt });
+    }
+    
+    if (questions.length === 0) {
+        alert('At least one question is required.');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    
+    const payload = {
+        enabled,
+        payment_link,
+        cod_label,
+        online_label,
+        questions,
+        cod_confirmation_template,
+        online_confirmation_template
+    };
+    
+    try {
+        const res = await fetch('/api/order-flow', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Order Flow settings saved successfully!');
+        } else {
+            alert('Error saving: ' + data.message);
+        }
+    } catch (err) {
+        alert('Failed to save settings: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Order Flow Settings';
+    }
+}
+
 // ── Instagram / SuperProfile Tab Logic ──
 function saveInstaUsername() {
     const username = document.getElementById('insta-username').value.trim();
@@ -661,6 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved) {
         loadInstaIframe(saved);
     }
+    loadOrderFlowSettings();
 });
 </script>
 </body>
