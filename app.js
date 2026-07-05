@@ -181,13 +181,13 @@ async function convertToOggOpusFile(base64Data) {
         
         // Transcode WebM/MP4 audio to Mono, 48kHz, Opus codec OGG container for WhatsApp compatibility
         // Try libopus first
-        let command = `"${ffmpegPath}" -y -i "${inputPath}" -vn -c:a libopus -b:a 48k -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
+        let command = `"${ffmpegPath}" -y -i "${inputPath}" -vn -c:a libopus -b:a 16k -ar 16000 -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
         try {
             await execPromise(command);
         } catch (err) {
             addLog(`[FFmpeg libopus failed, trying native opus] ${err.message}`);
             // Fallback to native opus encoder
-            command = `"${ffmpegPath}" -y -i "${inputPath}" -vn -c:a opus -b:a 48k -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
+            command = `"${ffmpegPath}" -y -i "${inputPath}" -vn -c:a opus -b:a 16k -ar 16000 -ac 1 -avoid_negative_ts make_zero -f ogg "${outputPath}"`;
             await execPromise(command);
         }
         
