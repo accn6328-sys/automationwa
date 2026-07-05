@@ -631,9 +631,13 @@ def upload_wa_media(phone_id, token, base64_data, mime_type="image/jpeg"):
     data = {
         "messaging_product": "whatsapp"
     }
-    r = requests.post(url, headers=headers, files=files, data=data, timeout=20)
-    r.raise_for_status()
-    return r.json().get("id")
+    try:
+        r = requests.post(url, headers=headers, files=files, data=data, timeout=20)
+        r.raise_for_status()
+        return r.json().get("id")
+    except requests.exceptions.HTTPError as err:
+        print(f"Meta Media API Error Response: {err.response.text}", flush=True)
+        raise err
 
 
 def send_official_wa_message(to_number, text=None, image_base64=None, voice_base64=None):
@@ -675,9 +679,13 @@ def send_official_wa_message(to_number, text=None, image_base64=None, voice_base
     else:
         payload["type"] = "text"
         payload["text"] = {"body": text, "preview_url": True}
-    r = requests.post(url, headers=headers, json=payload, timeout=15)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.HTTPError as err:
+        print(f"Meta API Error Response: {err.response.text}", flush=True)
+        raise err
 
 
 def handle_official_wa_message(msg, contact):
