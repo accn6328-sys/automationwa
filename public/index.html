@@ -1820,6 +1820,8 @@ async function loadIgAnalytics() {
     try {
         const res = await fetch('/fb/instagram/ui/leads');
         const leads = await res.json();
+    } catch (e) {
+        console.error('Failed to load leads list:', e);
     }
 }
 
