@@ -448,6 +448,187 @@ function saveOrders(orders) {
     }
 }
 
+// ── Shopify Admin REST API Order Creator Integration ──
+function extractField(answers, possibleKeys) {
+    for (const key of possibleKeys) {
+        const lowerKey = key.toLowerCase();
+        for (const [ansKey, ansVal] of Object.entries(answers)) {
+            const lowerAnsKey = ansKey.toLowerCase();
+            if (lowerAnsKey === lowerKey || lowerAnsKey.includes(lowerKey)) {
+                if (ansVal && ansVal.toString().trim().length > 0) {
+                    return ansVal.toString().trim();
+                }
+            }
+        }
+    }
+    return null;
+}
+
+async function createShopifyOrderForState(userState, senderJid, senderName, sock) {
+    const answers = userState.answers || {};
+    
+    // Extract fields dynamically from collected answers
+    const name = extractField(answers, ['name', 'customer', 'full name', 'buyer']) || senderName || 'WhatsApp Customer';
+    const phone = extractField(answers, ['phone', 'mobile', 'contact', 'number']);
+    const address = extractField(answers, ['address', 'shipping', 'location', 'delivery']);
+    const variantId = extractField(answers, ['variant', 'product', 'id', 'item_id', 'variant_id']);
+    const quantityStr = extractField(answers, ['quantity', 'qty', 'count', 'number of items']) || '1';
+    const priceStr = extractField(answers, ['price', 'amount', 'cost', 'rate']);
+    
+    // Validate required fields: address, phone, product ID (variant ID)
+    const missingFields = [];
+    if (!phone) missingFields.push('phone');
+    if (!address) missingFields.push('address');
+    if (!variantId) missingFields.push('product variant ID');
+    
+    if (missingFields.length > 0) {
+        const errMsg = `Shopify order failed: Missing required fields (${missingFields.join(', ')}).`;
+        addLog(`[Shopify Error] ${errMsg}`);
+        
+        // Log payload and error to failed_orders.log
+        const logPayload = {
+            timestamp: new Date().toISOString(),
+            error: errMsg,
+            answers: answers,
+            senderJid: senderJid,
+            senderName: senderName
+        };
+        fs.appendFileSync(
+            path.join(__dirname, 'failed_orders.log'),
+            JSON.stringify(logPayload, null, 2) + '\n\n',
+            'utf8'
+        );
+        
+        // Alert admin via WhatsApp
+        try {
+            const adminJid = '916282444918@s.whatsapp.net';
+            await sock.sendMessage(adminJid, {
+                text: `⚠️ *Shopify Order Creation Failed!*\n\n` +
+                      `*Error*: ${errMsg}\n` +
+                      `*Customer*: ${senderName} (${senderJid.split('@')[0]})\n` +
+                      `*Answers*:\n${JSON.stringify(answers, null, 2)}`
+            });
+        } catch(e) {
+            addLog(`Failed to alert admin: ${e.message}`);
+        }
+        return;
+    }
+    
+    const quantity = parseInt(quantityStr, 10) || 1;
+    const price = priceStr ? parseFloat(priceStr) : null;
+    
+    // COD is set to financial_status "pending"; online is set to "paid"
+    const financialStatus = userState.paymentMethod === 'cod' ? 'pending' : 'paid';
+    
+    const shopifyOrder = {
+        order: {
+            line_items: [
+                {
+                    variant_id: parseInt(variantId, 10),
+                    quantity: quantity
+                }
+            ],
+            customer: {
+                first_name: name,
+                phone: phone
+            },
+            shipping_address: {
+                first_name: name,
+                address1: address,
+                phone: phone
+            },
+            financial_status: financialStatus,
+            phone: phone
+        }
+    };
+    
+    if (price !== null && !isNaN(price)) {
+        shopifyOrder.order.line_items[0].price = price;
+    }
+    
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
+    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
+    
+    if (!storeDomain || !adminToken || adminToken.includes('xxxxxx')) {
+        const errMsg = 'Shopify credentials missing or unconfigured in .env file.';
+        addLog(`[Shopify Error] ${errMsg}`);
+        
+        fs.appendFileSync(
+            path.join(__dirname, 'failed_orders.log'),
+            JSON.stringify({ timestamp: new Date().toISOString(), error: errMsg, payload: shopifyOrder }, null, 2) + '\n\n',
+            'utf8'
+        );
+        
+        try {
+            const adminJid = '916282444918@s.whatsapp.net';
+            await sock.sendMessage(adminJid, {
+                text: `⚠️ *Shopify Order Creation Failed!*\n\n` +
+                      `*Error*: ${errMsg}\n` +
+                      `*Customer*: ${senderName} (${senderJid.split('@')[0]})`
+            });
+        } catch(e) {}
+        return;
+    }
+    
+    let cleanDomain = storeDomain.replace('https://', '').replace('http://', '').trim();
+    if (!cleanDomain.endsWith('.myshopify.com') && !cleanDomain.includes('.')) {
+        cleanDomain = `${cleanDomain}.myshopify.com`;
+    }
+    
+    const shopifyUrl = `https://${cleanDomain}/admin/api/2026-01/orders.json`;
+    
+    try {
+        const response = await fetch(shopifyUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': adminToken
+            },
+            body: JSON.stringify(shopifyOrder)
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.order) {
+            const orderNumber = data.order.order_number || data.order.name || data.order.id;
+            addLog(`Shopify Order created successfully: #${orderNumber}`);
+            
+            // Send confirmation back to customer via WhatsApp
+            const confirmationMsg = `🎉 *Order Confirmed!*\n\n` +
+                                    `Thank you for ordering, *${name}*! Your order has been placed successfully.\n` +
+                                    `🛍️ *Shopify Order ID*: #${orderNumber}\n` +
+                                    `We will update you once your order is dispatched.`;
+            await sock.sendMessage(senderJid, { text: confirmationMsg });
+        } else {
+            const errDetails = data.errors ? JSON.stringify(data.errors) : JSON.stringify(data);
+            throw new Error(`Shopify API responded with status ${response.status}: ${errDetails}`);
+        }
+    } catch(err) {
+        addLog(`[Shopify Error] Shopify API request failed: ${err.message}`);
+        
+        const failedPayload = {
+            timestamp: new Date().toISOString(),
+            error: err.message,
+            payload: shopifyOrder
+        };
+        fs.appendFileSync(
+            path.join(__dirname, 'failed_orders.log'),
+            JSON.stringify(failedPayload, null, 2) + '\n\n',
+            'utf8'
+        );
+        
+        // Notify admin via WhatsApp
+        try {
+            const adminJid = '916282444918@s.whatsapp.net';
+            await sock.sendMessage(adminJid, {
+                text: `⚠️ *Shopify Order Creation Failed!*\n\n` +
+                      `*Error*: ${err.message}\n` +
+                      `*Customer*: ${senderName} (${senderJid.split('@')[0]})`
+            });
+        } catch(e) {}
+    }
+}
+
 function loadActiveContacts() {
     try {
         if (fs.existsSync(CONTACTS_FILE)) {
@@ -1241,6 +1422,65 @@ app.post('/api/import-session', async (req, res) => {
     }
 });
 
+// ── Online Payment Webhook Shopify Order Fulfillment ──
+app.post('/api/payment-webhook', async (req, res) => {
+    const data = req.body;
+    addLog(`Received payment success webhook: ${JSON.stringify(data)}`);
+    
+    // Extract identifier (phone, email, custom JID, etc.) from webhook data
+    const identifier = data.phone || data.customer_phone || data.metadata?.jid || data.metadata?.phone || data.billing_details?.phone || data.email;
+    
+    if (!identifier) {
+        return res.status(400).json({ success: false, message: 'Missing phone/JID identifier in webhook payload.' });
+    }
+    
+    let targetJid = identifier.toString().trim();
+    if (!targetJid.endsWith('@s.whatsapp.net')) {
+        targetJid = targetJid.replace(/\D/g, '');
+        targetJid = `${targetJid}@s.whatsapp.net`;
+    }
+    
+    // Scan orders database to locate the user's latest pending online order
+    const orders = loadOrders();
+    const pendingOrderIdx = orders.slice().reverse().findIndex(o => 
+        o.jid === targetJid && 
+        o.paymentMethod === 'online' && 
+        !o.shopifyProcessed
+    );
+    
+    if (pendingOrderIdx === -1) {
+        addLog(`[Shopify Error] No pending online order found for JID: ${targetJid}`);
+        return res.status(404).json({ success: false, message: `No pending online order found for JID: ${targetJid}` });
+    }
+    
+    const actualIdx = orders.length - 1 - pendingOrderIdx;
+    const orderData = orders[actualIdx];
+    
+    try {
+        const orderState = {
+            answers: orderData.answers,
+            paymentMethod: 'online'
+        };
+        
+        if (sock) {
+            await createShopifyOrderForState(orderState, orderData.jid, orderData.name, sock);
+            
+            // Mark as processed in orders database
+            orderData.shopifyProcessed = true;
+            orderData.shopifyProcessedAt = new Date().toISOString();
+            orders[actualIdx] = orderData;
+            saveOrders(orders);
+            
+            return res.json({ success: true, message: `Shopify order processed successfully for ${targetJid}` });
+        } else {
+            throw new Error('WhatsApp connection socket is not initialized/active.');
+        }
+    } catch(err) {
+        addLog(`[Shopify Error] Webhook Shopify order creation failed: ${err.message}`);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // Socket connection listener
 io.on('connection', (socket) => {
     socket.emit('status', { status: connectionStatus });
@@ -1644,15 +1884,31 @@ async function connectToWhatsApp() {
                             }
 
                             const orders = loadOrders();
-                            orders.push({
+                            const orderRecord = {
                                 jid: senderJid,
                                 name: senderName,
                                 paymentMethod: userState.paymentMethod,
                                 answers: userState.answers,
                                 matchedKeywordPattern: userState.matchedKeywordPattern,
                                 completedAt: new Date().toISOString()
-                            });
+                            };
+                            orders.push(orderRecord);
                             saveOrders(orders);
+
+                            // Trigger Shopify order creation automatically for COD orders
+                            if (userState.paymentMethod === 'cod') {
+                                createShopifyOrderForState(userState, senderJid, senderName, sock)
+                                    .then(() => {
+                                        const updatedOrders = loadOrders();
+                                        const lastIdx = updatedOrders.length - 1;
+                                        if (lastIdx >= 0 && updatedOrders[lastIdx].jid === senderJid) {
+                                            updatedOrders[lastIdx].shopifyProcessed = true;
+                                            updatedOrders[lastIdx].shopifyProcessedAt = new Date().toISOString();
+                                            saveOrders(updatedOrders);
+                                        }
+                                    })
+                                    .catch(err => addLog(`[Shopify Error] COD auto-creation failed: ${err.message}`));
+                            }
 
                             delete convState[senderJid];
                             saveConvState(convState);
