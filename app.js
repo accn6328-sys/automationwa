@@ -915,7 +915,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/status', (req, res) => {
     res.json({
         status: connectionStatus,
-        qr: qrCodeBase64
+        qr: qrCodeBase64,
+        botNumber: sock && sock.user ? sock.user.id.split(':')[0].split('@')[0] : null
     });
 });
 
@@ -1091,7 +1092,7 @@ app.post('/api/send', async (req, res) => {
 
     // Format phone number to WhatsApp JID format (e.g. "919895138430@s.whatsapp.net")
     let jid = number.trim();
-    if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@g.us')) {
+    if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@g.us') && !jid.endsWith('@newsletter')) {
         // Remove non-digit characters
         jid = jid.replace(/\D/g, '');
         jid = `${jid}@s.whatsapp.net`;
