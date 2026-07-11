@@ -171,7 +171,8 @@ def init_sqlite_db():
         sent_at REAL,
         is_automated INTEGER,
         is_private_reply INTEGER,
-        automation_name TEXT
+        automation_name TEXT,
+        run_id TEXT
     );
     CREATE TABLE IF NOT EXISTS ig_messages_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,6 +253,20 @@ def init_sqlite_db():
             conn.commit()
         except Exception as e:
             print(f"[Migration Error] ig_automations columns: {e}")
+        finally:
+            conn.close()
+
+    with db_lock:
+        conn = get_db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(ig_messages_log)")
+            log_cols = [c[1] for c in cursor.fetchall()]
+            if "run_id" not in log_cols:
+                cursor.execute("ALTER TABLE ig_messages_log ADD COLUMN run_id TEXT")
+            conn.commit()
+        except Exception as e:
+            print(f"[Migration Error] ig_messages_log columns: {e}")
         finally:
             conn.close()
     _migrate_legacy_json_files()
@@ -1018,7 +1033,7 @@ def increment_ig_automation_counter_by_id(auto_id, column_name):
         finally:
             conn.close()
 
-def queue_ig_follow_up_task(recipient_id, auto_id, step_index, delay):
+def queue_ig_follow_up_task(recipient_id, auto_id, step_index, delay, run_id=None):
     queue = load_ig_messages_queue()
     queue.append({
         "recipient_id": recipient_id,
@@ -1026,7 +1041,8 @@ def queue_ig_follow_up_task(recipient_id, auto_id, step_index, delay):
         "auto_id": auto_id,
         "step_index": step_index,
         "queued_at": time.time(),
-        "delay": delay
+        "delay": delay,
+        "run_id": run_id
     })
     save_ig_messages_queue(queue)
 
@@ -1164,7 +1180,7 @@ def load_ig_messages_log():
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name FROM ig_messages_log")
+        cursor.execute("SELECT recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id FROM ig_messages_log")
         rows = cursor.fetchall()
         return [{
             "recipient_id": r["recipient_id"],
@@ -1173,7 +1189,8 @@ def load_ig_messages_log():
             "sent_at": r["sent_at"],
             "is_automated": bool(r["is_automated"]),
             "is_private_reply": bool(r["is_private_reply"]),
-            "automation_name": r["automation_name"]
+            "automation_name": r["automation_name"],
+            "run_id": r["run_id"]
         } for r in rows]
     except Exception as e:
         print(f"Error loading message logs: {e}")
@@ -1189,7 +1206,7 @@ def save_ig_messages_log(data):
             cursor.execute("DELETE FROM ig_messages_log")
             for entry in data:
                 cursor.execute(
-                    "INSERT INTO ig_messages_log (recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO ig_messages_log (recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         entry.get("recipient_id"),
                         entry.get("text"),
@@ -1197,7 +1214,8 @@ def save_ig_messages_log(data):
                         entry.get("sent_at"),
                         1 if entry.get("is_automated") else 0,
                         1 if entry.get("is_private_reply") else 0,
-                        entry.get("automation_name")
+                        entry.get("automation_name"),
+                        entry.get("run_id")
                     )
                 )
             conn.commit()
@@ -2042,7 +2060,7 @@ def get_last_user_interaction_time(user_id):
     interactions = load_ig_user_interactions()
     return interactions.get(str(user_id))
 
-def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False, automation_name=None, delay=0, quick_replies=None, buttons=None, from_comment=False):
+def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False, automation_name=None, delay=0, quick_replies=None, buttons=None, from_comment=False, run_id=None, auto_id=None):
     queue = load_ig_messages_queue()
     queue.append({
         "recipient_id": recipient_id,
@@ -2054,10 +2072,12 @@ def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False
         "delay": delay,
         "quick_replies": quick_replies,
         "buttons": buttons,
-        "from_comment": from_comment
+        "from_comment": from_comment,
+        "run_id": run_id,
+        "auto_id": auto_id
     })
     save_ig_messages_queue(queue)
-    print(f"[Queue] Queued message to {recipient_id}: {text[:30]}... (from_comment={from_comment})", flush=True)
+    print(f"[Queue] Queued message to {recipient_id}: {text[:30]}... (from_comment={from_comment}, run_id={run_id}, auto_id={auto_id})", flush=True)
 
 def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None) -> tuple[bool, str]:
     if not IG_USER_ID:
@@ -2208,7 +2228,13 @@ def perform_ig_dm_send(user_id, message, tag=None) -> tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
-def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None) -> tuple[bool, str]:
+def is_valid_url(url):
+    if not url:
+        return False
+    url = str(url).strip()
+    return url.startswith("http://") or url.startswith("https://")
+
+def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=None) -> tuple[bool, str]:
     """Send a message containing multiple buttons (web_url button template or quick replies)."""
     if not daily_cap_ok():
         return False, "Daily DM cap reached"
@@ -2216,19 +2242,26 @@ def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None) -> tuple
     if not buttons_list:
         return perform_ig_dm_send(recipient_id, text, tag=tag)
         
-    has_url = any(btn.get("url") for btn in buttons_list)
+    has_url = any(is_valid_url(btn.get("url")) for btn in buttons_list)
     
     try:
         if has_url:
             meta_buttons = []
-            for btn in buttons_list[:3]:
-                url = btn.get("url") or "https://google.com"
+            for idx, btn in enumerate(buttons_list[:3]):
+                url = btn.get("url") or ""
                 title = btn.get("title") or "Open Link"
-                meta_buttons.append({
-                    "type": "web_url",
-                    "url": url,
-                    "title": title[:20]
-                })
+                if is_valid_url(url):
+                    meta_buttons.append({
+                        "type": "web_url",
+                        "url": url,
+                        "title": title[:20]
+                    })
+                else:
+                    meta_buttons.append({
+                        "type": "postback",
+                        "title": title[:20],
+                        "payload": f"IGBTN_MULTI_{auto_id}_{idx}"
+                    })
             json_payload = {
                 "recipient": {"id": recipient_id},
                 "message": {
@@ -2249,7 +2282,7 @@ def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None) -> tuple
                 quick_replies.append({
                     "content_type": "text",
                     "title": title[:20],
-                    "payload": f"IGBTN_MULTI_{idx}"
+                    "payload": f"IGBTN_MULTI_{auto_id}_{idx}"
                 })
             json_payload = {
                 "recipient": {"id": recipient_id},
@@ -2318,24 +2351,26 @@ def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, l
     except Exception as e:
         return False, str(e)
 
-def send_ig_private_reply(comment_id, message, recipient_id=None, automation_name=None, delay=0):
+def send_ig_private_reply(comment_id, message, recipient_id=None, automation_name=None, delay=0, run_id=None):
     queue_ig_message(
         recipient_id=recipient_id,
         text=message,
         comment_id=comment_id,
         is_private_reply=True,
         automation_name=automation_name,
-        delay=delay
+        delay=delay,
+        run_id=run_id
     )
 
-def send_ig_dm(user_id, message, automation_name=None, delay=0):
+def send_ig_dm(user_id, message, automation_name=None, delay=0, run_id=None):
     queue_ig_message(
         recipient_id=user_id,
         text=message,
         comment_id=None,
         is_private_reply=False,
         automation_name=automation_name,
-        delay=delay
+        delay=delay,
+        run_id=run_id
     )
 
 import random
@@ -2429,7 +2464,8 @@ def ig_queue_worker():
                     log.get("sent_at", 0) >= twenty_four_hours_ago and 
                     log.get("status") == "success" and
                     log.get("is_automated", True) and
-                    not log.get("is_private_reply", False)
+                    not log.get("is_private_reply", False) and
+                    log.get("run_id") != msg_task.get("run_id")
                     for log in logs
                 )
                 if already_sent_24h:
@@ -2441,7 +2477,10 @@ def ig_queue_worker():
                         "text": msg_task.get("text"),
                         "status": "skipped_24h_limit",
                         "sent_at": time.time(),
-                        "is_automated": True
+                        "is_automated": True,
+                        "is_private_reply": False,
+                        "automation_name": automation_name,
+                        "run_id": msg_task.get("run_id")
                     })
                     save_ig_messages_log(logs)
                     continue
@@ -2499,13 +2538,11 @@ def ig_queue_worker():
             time.sleep(total_delay)
             
             text = msg_task.get("text")
-            success = False
-            error_message = ""
-            
+            auto_id = msg_task.get("auto_id")
             if is_private_reply and comment_id:
                 success, error_message = perform_ig_private_reply_send(comment_id, text, quick_replies=msg_task.get("quick_replies"))
             elif msg_task.get("buttons"):
-                success, error_message = perform_ig_buttons_send(recipient_id, text, msg_task["buttons"], tag=tag_to_use)
+                success, error_message = perform_ig_buttons_send(recipient_id, text, msg_task["buttons"], tag=tag_to_use, auto_id=auto_id)
             elif msg_task.get("quick_replies"):
                 success, error_message = perform_ig_dm_send_with_buttons(recipient_id, text, msg_task["quick_replies"], tag=tag_to_use)
             else:
@@ -2517,7 +2554,9 @@ def ig_queue_worker():
                 "status": "success" if success else f"failed: {error_message}",
                 "sent_at": time.time(),
                 "is_automated": automation_name != "manual",
-                "is_private_reply": is_private_reply
+                "is_private_reply": is_private_reply,
+                "automation_name": automation_name,
+                "run_id": msg_task.get("run_id")
             })
             save_ig_messages_log(logs)
             
@@ -2638,54 +2677,65 @@ def check_if_user_follows(user_id):
         return False, ""
 
 
-def build_ig_private_reply_body(auto, username=""):
-    parts = []
-    dm = personalize_ig_message(auto.get("dm_message", ""), username)
-    if dm:
-        parts.append(dm)
-        
-    buttons = auto.get("buttons") or []
-    for btn in buttons:
-        title = btn.get("title") or "Link"
-        url = btn.get("url")
-        if url:
-            parts.append(f"{title}: {url}")
-            
-    link_url = auto.get("link_url")
-    if link_url and not any(btn.get("url") == link_url for btn in buttons):
-        btn_label = auto.get("link_button_label") or "Link"
-        parts.append(f"{btn_label}: {link_url}")
-        
-    return "\n\n".join(p for p in parts if p)
-
-
-def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
+def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, run_id=None):
     action = auto.get("action", "both")
     if action == "flow" and auto.get("link_url") and user_id:
         if comment_id:
             flow_url = auto.get("link_url")
             text = f"Click the link to start: {flow_url}"
-            send_ig_private_reply(comment_id, text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-            return True
+            send_ig_private_reply(comment_id, text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+            button_delay = delay + 5
+        else:
+            button_delay = delay
         start_ig_flow(user_id, auto["link_url"], username)
         return True
 
     if action in ("dm", "both") and auto.get("dm_message"):
-        if comment_id:
-            text_body = build_ig_private_reply_body(auto, username)
-            send_ig_private_reply(comment_id, text_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-            return True
         dm_body = build_ig_dm_body(auto, username)
         steps = auto.get("follow_up_steps") or []
         has_tap_step_0 = len(steps) > 0 and steps[0].get("advance_mode") == "on_tap" and steps[0].get("button_label")
         
-        if auto.get("email_capture") and auto.get("email_prompt") and user_id:
-            if comment_id:
-                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+        has_buttons = (auto.get("button_enabled") and (auto.get("buttons") or auto.get("button_label"))) or has_tap_step_0
+        has_email = auto.get("email_capture") and auto.get("email_prompt")
+        has_followups = len(steps) > 0 or auto.get("follow_up_message")
+        
+        triggered_from_comment = bool(comment_id)
+        
+        if triggered_from_comment:
+            if has_buttons or has_email or has_followups:
+                # We have a sequence/buttons. Send a plain private reply first to open the 24h window.
+                private_reply_text = "Hey! Thanks for commenting! Check the options below:"
+                send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+                button_delay = delay + 5
             else:
-                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
-            send_ig_dm(user_id, auto["email_prompt"], automation_name=auto.get("name"), delay=delay + 1)
-            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                # Simple text-only DM. Send it directly as the private reply.
+                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                return True
+        else:
+            button_delay = delay
+
+        if has_email and user_id:
+            queue_ig_message(
+                recipient_id=user_id,
+                text=dm_body,
+                comment_id=None,
+                is_private_reply=False,
+                automation_name=auto.get("name"),
+                delay=button_delay,
+                from_comment=triggered_from_comment,
+                run_id=run_id
+            )
+            queue_ig_message(
+                recipient_id=user_id,
+                text=auto["email_prompt"],
+                comment_id=None,
+                is_private_reply=False,
+                automation_name=auto.get("name"),
+                delay=button_delay + 1,
+                from_comment=triggered_from_comment,
+                run_id=run_id
+            )
             increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
             conv_state = load_ig_conv_state()
@@ -2696,19 +2746,7 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
             }
             save_ig_conv_state(conv_state)
             
-        elif (auto.get("button_enabled") and (auto.get("buttons") or auto.get("button_label"))) or has_tap_step_0:
-            # from_comment=True tells the queue worker to skip Rule 4 (24h window check)
-            # because the private reply already opens the messaging window
-            triggered_from_comment = bool(comment_id)
-            if comment_id:
-                # Send an initial private reply to open the 24-hour window
-                private_reply_text = f"Thanks for your comment! Check the options below:"
-                send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-                # Give the private reply enough time to be processed and open the window
-                button_delay = delay + 5
-            else:
-                button_delay = delay
-
+        elif has_buttons:
             if auto.get("buttons"):
                 queue_ig_message(
                     recipient_id=user_id,
@@ -2718,13 +2756,14 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
                     automation_name=auto.get("name"),
                     delay=button_delay,
                     buttons=auto.get("buttons"),
-                    from_comment=triggered_from_comment
+                    from_comment=triggered_from_comment,
+                    run_id=run_id,
+                    auto_id=auto.get("id")
                 )
-                print(f"  [Button DM] Queued multi-button DM to {user_id} (from_comment={triggered_from_comment})", flush=True)
             else:
                 if has_tap_step_0:
                     btn_label = steps[0]["button_label"][:20]
-                    btn_payload = f"IGSTEP_{auto['id']}_0"
+                    btn_payload = f"IGSTEP_{auto['id']}_0_{run_id}"
                 else:
                     btn_label = auto["button_label"][:20]
                     btn_payload = f"IGBTN_{auto['name']}"
@@ -2738,20 +2777,17 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
                     automation_name=auto.get("name"),
                     delay=button_delay,
                     quick_replies=quick_replies,
-                    from_comment=triggered_from_comment
+                    from_comment=triggered_from_comment,
+                    run_id=run_id,
+                    auto_id=auto.get("id")
                 )
-                print(f"  [QuickReply DM] Queued DM to {user_id} with button payload={btn_payload} (from_comment={triggered_from_comment})", flush=True)
             increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
         else:
-            # Normal initial DM
-            if comment_id:
-                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-            elif user_id:
-                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
-            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+            if not triggered_from_comment:
+                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
-            # Check for follow-up sequence vs legacy single follow-up
             if len(steps) > 0:
                 if steps[0].get("advance_mode") == "auto":
                     queue_ig_follow_up_task(user_id, auto["id"], 0, steps[0].get("delay_seconds") or 0)
@@ -2796,6 +2832,9 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
         delay = int(auto.get("delay_seconds", 0))
 
         action = auto.get("action", "both")
+        
+        # Unique run_id per trigger match event
+        run_id = f"{auto.get('id')}:{user_id}:{int(time.time()*1000)}"
 
         # Handle "Ask for Follow" Gate
         # Only run immediately for non-comment triggers.
@@ -2807,11 +2846,11 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                 is_following, api_username = check_if_user_follows(user_id)
                 if is_following:
                     print(f"  [Follow Gate] User {user_id} is already following. Skipping gate.", flush=True)
-                    send_ig_automation_dm(auto, user_id, api_username or username, comment_id, delay)
+                    send_ig_automation_dm(auto, user_id, api_username or username, comment_id, delay, run_id=run_id)
                 else:
                     if comment_id:
                         # Send a simple private reply first to open the 24-hour window
-                        send_ig_private_reply(comment_id, "Check your DMs to get the link! 📩", recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                        send_ig_private_reply(comment_id, "Check your DMs to get the link! 📩", recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
                         # Give the private reply enough time to be processed and open the window
                         button_delay = delay + 5
                     else:
@@ -2819,8 +2858,8 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
 
                     follow_dm_text = f"{auto['follow_prompt']}\n\nDid you follow us?"
                     quick_replies = [
-                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto.get('id')}"},
-                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto.get('id')}"}
+                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto.get('id')}_{run_id}"},
+                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto.get('id')}_{run_id}"}
                     ]
                     queue_ig_message(
                         recipient_id=user_id,
@@ -2830,7 +2869,8 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         automation_name=auto.get("name"),
                         delay=button_delay,
                         quick_replies=quick_replies,
-                        from_comment=bool(comment_id)
+                        from_comment=bool(comment_id),
+                        run_id=run_id
                     )
                     increment_ig_automation_counter(auto["name"], "dms_sent")
                     
@@ -2852,7 +2892,7 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
             reply_to_ig_comment(comment_id, personalize_ig_message(auto["reply"], username))
             increment_ig_automation_counter(auto["name"], "replies_sent")
 
-        send_ig_automation_dm(auto, user_id, username, comment_id, delay)
+        send_ig_automation_dm(auto, user_id, username, comment_id, delay, run_id=run_id)
         return True
     return False
     return False
@@ -3048,15 +3088,45 @@ def handle_ig_messaging(event):
             })
         return
 
+    if postback_payload.startswith("IGBTN_MULTI_"):
+        try:
+            parts = postback_payload.split("_")
+            if len(parts) >= 5:
+                auto_id = int(parts[2])
+                btn_idx = int(parts[3])
+                auto = get_ig_automation_by_id(auto_id)
+                if auto:
+                    buttons = auto.get("buttons") or []
+                    if btn_idx < len(buttons):
+                        btn = buttons[btn_idx]
+                        tap_msg = btn.get("tap_message") or ""
+                        if tap_msg:
+                            send_ig_dm(sender_id, personalize_ig_message(tap_msg, username), automation_name=auto.get("name"), delay=0)
+                            print(f"[Multi-button Tap] Sent reply for button {btn_idx} of auto {auto_id}", flush=True)
+                        else:
+                            print(f"[Multi-button Tap] No tap_message configured for button {btn_idx}", flush=True)
+                    else:
+                        print(f"[Multi-button Tap] Button index {btn_idx} out of range", flush=True)
+                else:
+                    print(f"[Multi-button Tap] Automation {auto_id} not found", flush=True)
+            else:
+                btn_idx = int(parts[2])
+                print(f"[Multi-button Tap] Legacy button format: {btn_idx}", flush=True)
+        except Exception as e:
+            print(f"[Multi-button Tap Error] Failed to process: {e}", flush=True)
+        return
+
     if postback_payload.startswith("IGFOLLOW_YES_"):
         try:
-            auto_id = int(postback_payload.split("_")[-1])
+            parts = postback_payload.split("_")
+            auto_id = int(parts[2])
+            run_id = parts[3] if len(parts) >= 4 else None
             auto = get_ig_automation_by_id(auto_id)
             if auto:
                 is_following, api_username = check_if_user_follows(sender_id)
                 if is_following:
                     increment_ig_automation_counter(auto["name"], "follow_gate_conversions")
-                    send_ig_automation_dm(auto, sender_id, username=api_username)
+                    send_ig_automation_dm(auto, sender_id, username=api_username, run_id=run_id)
                     conv_state = load_ig_conv_state()
                     user_state = conv_state.get(str(sender_id))
                     if user_state and user_state.get("step") == "awaiting_email":
@@ -3068,8 +3138,8 @@ def handle_ig_messaging(event):
                 else:
                     msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' again."
                     quick_replies = [
-                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
-                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}_{run_id}"},
+                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}_{run_id}"}
                     ]
                     queue_ig_message(
                         recipient_id=sender_id,
@@ -3078,7 +3148,8 @@ def handle_ig_messaging(event):
                         is_private_reply=False,
                         automation_name=auto.get("name"),
                         delay=0,
-                        quick_replies=quick_replies
+                        quick_replies=quick_replies,
+                        run_id=run_id
                     )
         except Exception as e:
             print(f"[IGFOLLOW Error] Failed to process Yes tap: {e}", flush=True)
@@ -3086,13 +3157,15 @@ def handle_ig_messaging(event):
 
     if postback_payload.startswith("IGFOLLOW_NO_"):
         try:
-            auto_id = int(postback_payload.split("_")[-1])
+            parts = postback_payload.split("_")
+            auto_id = int(parts[2])
+            run_id = parts[3] if len(parts) >= 4 else None
             auto = get_ig_automation_by_id(auto_id)
             if auto:
                 msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' again."
                 quick_replies = [
-                    {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
-                    {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                    {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}_{run_id}"},
+                    {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}_{run_id}"}
                 ]
                 queue_ig_message(
                     recipient_id=sender_id,
@@ -3101,7 +3174,8 @@ def handle_ig_messaging(event):
                     is_private_reply=False,
                     automation_name=auto.get("name"),
                     delay=0,
-                    quick_replies=quick_replies
+                    quick_replies=quick_replies,
+                    run_id=run_id
                 )
         except Exception as e:
             print(f"[IGFOLLOW Error] Failed to process No tap: {e}", flush=True)
@@ -3138,6 +3212,7 @@ def handle_ig_messaging(event):
             parts = postback_payload.split("_")
             auto_id = int(parts[1])
             step_index = int(parts[2])
+            run_id = parts[3] if len(parts) >= 4 else None
             
             # Tapping the button on step_index advances to step_index + 1
             next_idx = step_index + 1
@@ -3155,7 +3230,7 @@ def handle_ig_messaging(event):
                         )
                     elif next_step.get("advance_mode") == "on_tap" and next_step.get("button_label"):
                         btn_label = next_step["button_label"][:20]
-                        btn_payload = f"IGSTEP_{auto_id}_{next_idx}"
+                        btn_payload = f"IGSTEP_{auto_id}_{next_idx}_{run_id}"
                         quick_replies = [{"content_type": "text", "title": btn_label, "payload": btn_payload}]
                         success, err = perform_ig_dm_send_with_buttons(sender_id, text, quick_replies)
                     else:
@@ -3171,7 +3246,7 @@ def handle_ig_messaging(event):
                             after_next_step = steps[after_next_idx]
                             if after_next_step.get("advance_mode") == "auto":
                                 queue_ig_follow_up_task(
-                                    sender_id, auto_id, after_next_idx, after_next_step.get("delay_seconds") or 0
+                                    sender_id, auto_id, after_next_idx, after_next_step.get("delay_seconds") or 0, run_id=run_id
                                 )
         except Exception as e:
             print(f"[IGSTEP Error] Failed to process tap: {e}", flush=True)
@@ -4421,9 +4496,17 @@ function spRenderWizardButtons() {
           <span id="sp-wz-btn-cnt-${idx}" style="font-size:10px;color:#6b7280;">${(btn.title||'').length}/20</span>
         </div>
       </div>
-      <div style="margin-bottom:0;">
+      <div style="margin-bottom:8px;">
         <input type="url" placeholder="🔗 Paste link here (optional)" value="${btn.url || ''}"
-          oninput="spUpdateWizardButtonData(${idx},'url',this.value);updatePreview();"
+          oninput="spUpdateWizardButtonData(${idx},'url',this.value);spValidateWizardButtonUrl(${idx},this.value);updatePreview();"
+          style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;">
+        <div id="sp-wz-btn-url-err-${idx}" style="font-size:10px;color:#ef4444;margin-top:2px;display:${(btn.url && !btn.url.startsWith('http://') && !btn.url.startsWith('https://')) ? 'block' : 'none'};">
+          ⚠️ Link must start with http:// or https://
+        </div>
+      </div>
+      <div style="margin-bottom:0;">
+        <input type="text" placeholder="💬 Message to send when tapped (no-URL buttons)" value="${btn.tap_message || ''}"
+          oninput="spUpdateWizardButtonData(${idx},'tap_message',this.value);updatePreview();"
           style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;">
       </div>`;
     container.appendChild(card);
@@ -4441,7 +4524,7 @@ function spRenderWizardButtons() {
 
 function spAddWizardButton() {
   if (spWizardButtons.length >= 3) { alert('Meta allows a maximum of 3 buttons.'); return; }
-  spWizardButtons.push({ title: '', url: '' });
+  spWizardButtons.push({ title: '', url: '', tap_message: '' });
   spRenderWizardButtons();
   updatePreview();
 }
@@ -4454,6 +4537,16 @@ function spRemoveWizardButton(idx) {
 
 function spUpdateWizardButtonData(idx, key, val) {
   if (spWizardButtons[idx]) spWizardButtons[idx][key] = val;
+}
+
+function spValidateWizardButtonUrl(idx, val) {
+  const errDiv = document.getElementById('sp-wz-btn-url-err-' + idx);
+  if (!errDiv) return;
+  if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
+    errDiv.style.display = 'block';
+  } else {
+    errDiv.style.display = 'none';
+  }
 }
 
 function spUpdateWizardButtonCharCounter(idx, len) {
@@ -4549,10 +4642,10 @@ function openModal(d,idx){
     (d.post_ids||[]).forEach(pid=>{selectedPostIds[pid]={id:pid,thumbnail:d.thumbnail||''};});
     
     if (d.buttons && d.buttons.length > 0) {
-      spWizardButtons = d.buttons.map(b => ({ title: b.title || '', url: b.url || '' }));
+      spWizardButtons = d.buttons.map(b => ({ title: b.title || '', url: b.url || '', tap_message: b.tap_message || '' }));
       document.getElementById('auto-dm-type').value = 'text_button';
     } else if (d.button_label || d.link_url) {
-      spWizardButtons = [{ title: d.button_label || '', url: d.link_url || '' }];
+      spWizardButtons = [{ title: d.button_label || '', url: d.link_url || '', tap_message: d.button_follow_up_message || '' }];
       document.getElementById('auto-dm-type').value = 'text_button';
     } else {
       spWizardButtons = [];
