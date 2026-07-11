@@ -994,7 +994,8 @@ def get_ig_automation_by_id(auto_id):
                 "button_label": r["button_label"] if "button_label" in r.keys() else "",
                 "button_follow_up_message": r["button_follow_up_message"] if "button_follow_up_message" in r.keys() else "",
                 "link_button_label": r["link_button_label"] if "link_button_label" in r.keys() else "",
-                "follow_up_steps": json.loads(r["follow_up_steps"] or "[]") if "follow_up_steps" in r.keys() else []
+                "follow_up_steps": json.loads(r["follow_up_steps"] or "[]") if "follow_up_steps" in r.keys() else [],
+                "buttons": json.loads(r["buttons"] or "[]") if "buttons" in r.keys() else []
             }
     except Exception as e:
         print(f"Error loading IG automation by id {auto_id}: {e}")
@@ -2599,6 +2600,124 @@ def _ig_scope_match(auto, media_id):
     return media_id in auto.get("post_ids", [])
 
 
+def check_if_user_follows(user_id):
+    if not user_id:
+        return False, ""
+    try:
+        url = f"{GRAPH_URL}/{user_id}"
+        resp = requests.get(
+            url,
+            params={
+                "fields": "is_user_follow_business,username",
+                "access_token": PAGE_ACCESS_TOKEN
+            },
+            timeout=8
+        )
+        data = resp.json()
+        print(f"[Check Follow] API response for {user_id}: {data}", flush=True)
+        is_following = data.get("is_user_follow_business", False)
+        username = data.get("username", "")
+        return is_following, username
+    except Exception as e:
+        print(f"[Check Follow] Exception checking follow: {e}", flush=True)
+        return False, ""
+
+
+def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
+    action = auto.get("action", "both")
+    if action == "flow" and auto.get("link_url") and user_id:
+        start_ig_flow(user_id, auto["link_url"], username)
+        return True
+
+    if action in ("dm", "both") and auto.get("dm_message"):
+        dm_body = build_ig_dm_body(auto, username)
+        steps = auto.get("follow_up_steps") or []
+        has_tap_step_0 = len(steps) > 0 and steps[0].get("advance_mode") == "on_tap" and steps[0].get("button_label")
+        
+        if auto.get("email_capture") and auto.get("email_prompt") and user_id:
+            if comment_id:
+                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+            else:
+                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
+            send_ig_dm(user_id, auto["email_prompt"], automation_name=auto.get("name"), delay=delay + 1)
+            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+            
+            conv_state = load_ig_conv_state()
+            conv_state[str(user_id)] = {
+                "step": "awaiting_email",
+                "automation_name": auto.get("name"),
+                "updatedAt": int(time.time() * 1000)
+            }
+            save_ig_conv_state(conv_state)
+            
+        elif (auto.get("button_enabled") and (auto.get("buttons") or auto.get("button_label"))) or has_tap_step_0:
+            if comment_id:
+                # Send an initial private reply to open the 24-hour window
+                private_reply_text = f"Thanks for your comment! Check the options below:"
+                send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                button_delay = delay + 2
+            else:
+                button_delay = delay
+
+            if auto.get("buttons"):
+                queue_ig_message(
+                    recipient_id=user_id,
+                    text=dm_body,
+                    comment_id=None,
+                    is_private_reply=False,
+                    automation_name=auto.get("name"),
+                    delay=button_delay,
+                    buttons=auto.get("buttons")
+                )
+            else:
+                if has_tap_step_0:
+                    btn_label = steps[0]["button_label"][:20]
+                    btn_payload = f"IGSTEP_{auto['id']}_0"
+                else:
+                    btn_label = auto["button_label"][:20]
+                    btn_payload = f"IGBTN_{auto['name']}"
+                    
+                quick_replies = [{"content_type": "text", "title": btn_label, "payload": btn_payload}]
+                queue_ig_message(
+                    recipient_id=user_id,
+                    text=dm_body,
+                    comment_id=None,
+                    is_private_reply=False,
+                    automation_name=auto.get("name"),
+                    delay=button_delay,
+                    quick_replies=quick_replies
+                )
+            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+            print(f"  [QuickReply DM] Queued initial DM to {user_id} with button payload={btn_payload}", flush=True)
+            
+        else:
+            # Normal initial DM
+            if comment_id:
+                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+            elif user_id:
+                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
+            increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+            
+            # Check for follow-up sequence vs legacy single follow-up
+            if len(steps) > 0:
+                if steps[0].get("advance_mode") == "auto":
+                    queue_ig_follow_up_task(user_id, auto["id"], 0, steps[0].get("delay_seconds") or 0)
+            elif auto.get("follow_up_message") and user_id:
+                f_delay = int(auto.get("follow_up_delay_seconds") or 3600)
+                send_ig_dm(user_id, auto["follow_up_message"], automation_name=auto.get("name"), delay=delay + f_delay)
+                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                
+                conv_state = load_ig_conv_state()
+                conv_state[str(user_id)] = {
+                    "step": "awaiting_followup",
+                    "automation_name": auto.get("name"),
+                    "updatedAt": int(time.time() * 1000)
+                }
+                save_ig_conv_state(conv_state)
+    return True
+
+
 def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="", username=""):
     text = (text or "").lower().strip()
     for auto in load_ig_automations():
@@ -2627,126 +2746,59 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
         action = auto.get("action", "both")
 
         # Handle "Ask for Follow" Gate
-        # Handle "Ask for Follow" Gate
         if auto.get("ask_follow") and auto.get("follow_prompt") and user_id:
             conv_state = load_ig_conv_state()
             user_state = conv_state.get(str(user_id))
             if not user_state or user_state.get("step") != "awaiting_follow":
-                if comment_id:
-                    send_ig_private_reply(comment_id, auto["follow_prompt"], recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                is_following, api_username = check_if_user_follows(user_id)
+                if is_following:
+                    print(f"  [Follow Gate] User {user_id} is already following. Skipping gate.", flush=True)
+                    send_ig_automation_dm(auto, user_id, api_username or username, comment_id, delay)
                 else:
-                    send_ig_dm(user_id, auto["follow_prompt"], automation_name=auto.get("name"), delay=delay)
-                increment_ig_automation_counter(auto["name"], "dms_sent")
-                
-                conv_state[str(user_id)] = {
-                    "step": "awaiting_follow",
-                    "automation_name": auto.get("name"),
-                    "updatedAt": int(time.time() * 1000)
-                }
-                save_ig_conv_state(conv_state)
-                
-                if action in ("comment", "both") and auto.get("reply") and comment_id:
-                    reply_to_ig_comment(comment_id, personalize_ig_message(auto["reply"], username))
-                    increment_ig_automation_counter(auto["name"], "replies_sent")
-                return True
-
-        if action in ("comment", "both") and auto.get("reply") and comment_id:
-            reply_to_ig_comment(comment_id, personalize_ig_message(auto["reply"], username))
-            increment_ig_automation_counter(auto["name"], "replies_sent")
-
-        if action == "flow" and auto.get("link_url") and user_id:
-            start_ig_flow(user_id, auto["link_url"], username)
-            return True
-
-        if action in ("dm", "both") and auto.get("dm_message"):
-            dm_body = build_ig_dm_body(auto, username)
-            steps = auto.get("follow_up_steps") or []
-            has_tap_step_0 = len(steps) > 0 and steps[0].get("advance_mode") == "on_tap" and steps[0].get("button_label")
-            
-            if auto.get("email_capture") and auto.get("email_prompt") and user_id:
-                if comment_id:
-                    send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-                else:
-                    send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
-                send_ig_dm(user_id, auto["email_prompt"], automation_name=auto.get("name"), delay=delay + 1)
-                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
-                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
-                
-                conv_state = load_ig_conv_state()
-                conv_state[str(user_id)] = {
-                    "step": "awaiting_email",
-                    "automation_name": auto.get("name"),
-                    "updatedAt": int(time.time() * 1000)
-                }
-                save_ig_conv_state(conv_state)
-                
-            elif (auto.get("button_enabled") and (auto.get("buttons") or auto.get("button_label"))) or has_tap_step_0:
-                if comment_id:
-                    # Send an initial private reply to open the 24-hour window
-                    private_reply_text = f"Thanks for your comment! Check the options below:"
-                    send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-                    button_delay = delay + 2
-                else:
-                    button_delay = delay
-
-                if auto.get("buttons"):
-                    queue_ig_message(
-                        recipient_id=user_id,
-                        text=dm_body,
-                        comment_id=None,
-                        is_private_reply=False,
-                        automation_name=auto.get("name"),
-                        delay=button_delay,
-                        buttons=auto.get("buttons")
-                    )
-                else:
-                    if has_tap_step_0:
-                        btn_label = steps[0]["button_label"][:20]
-                        btn_payload = f"IGSTEP_{auto['id']}_0"
+                    if comment_id:
+                        # Send a simple private reply first to open the 24-hour window
+                        send_ig_private_reply(comment_id, "Check your DMs to get the link! 📩", recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                        button_delay = delay + 2
                     else:
-                        btn_label = auto["button_label"][:20]
-                        btn_payload = f"IGBTN_{auto['name']}"
-                        
-                    quick_replies = [{"content_type": "text", "title": btn_label, "payload": btn_payload}]
+                        button_delay = delay
+
+                    follow_dm_text = f"{auto['follow_prompt']}\n\nDid you follow us?"
+                    quick_replies = [
+                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto.get('id')}"},
+                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto.get('id')}"}
+                    ]
                     queue_ig_message(
                         recipient_id=user_id,
-                        text=dm_body,
+                        text=follow_dm_text,
                         comment_id=None,
                         is_private_reply=False,
                         automation_name=auto.get("name"),
                         delay=button_delay,
                         quick_replies=quick_replies
                     )
-                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
-                print(f"  [QuickReply DM] Queued initial DM to {user_id} with button payload={btn_payload}", flush=True)
-                
-            else:
-                # Normal initial DM
-                if comment_id:
-                    send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
-                elif user_id:
-                    send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay)
-                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
-                
-                # Check for follow-up sequence vs legacy single follow-up
-                if len(steps) > 0:
-                    if steps[0].get("advance_mode") == "auto":
-                        queue_ig_follow_up_task(user_id, auto["id"], 0, steps[0].get("delay_seconds") or 0)
-                elif auto.get("follow_up_message") and user_id:
-                    f_delay = int(auto.get("follow_up_delay_seconds") or 3600)
-                    send_ig_dm(user_id, auto["follow_up_message"], automation_name=auto.get("name"), delay=delay + f_delay)
-                    increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                    increment_ig_automation_counter(auto["name"], "dms_sent")
                     
-                    conv_state = load_ig_conv_state()
                     conv_state[str(user_id)] = {
-                        "step": "awaiting_followup",
+                        "step": "awaiting_follow",
                         "automation_name": auto.get("name"),
                         "updatedAt": int(time.time() * 1000)
                     }
                     save_ig_conv_state(conv_state)
+                
+                if action in ("comment", "both") and auto.get("reply") and comment_id:
+                    reply_to_ig_comment(comment_id, personalize_ig_message(auto["reply"], username))
+                    increment_ig_automation_counter(auto["name"], "replies_sent")
+                return True
+            else:
+                return True
 
+        if action in ("comment", "both") and auto.get("reply") and comment_id:
+            reply_to_ig_comment(comment_id, personalize_ig_message(auto["reply"], username))
+            increment_ig_automation_counter(auto["name"], "replies_sent")
 
+        send_ig_automation_dm(auto, user_id, username, comment_id, delay)
         return True
+    return False
     return False
 
 
@@ -2871,6 +2923,65 @@ def handle_ig_messaging(event):
     elif message.get("quick_reply"):
         postback_payload = message.get("quick_reply", {}).get("payload", "")
 
+    if postback_payload.startswith("IGFOLLOW_YES_"):
+        try:
+            auto_id = int(postback_payload.split("_")[-1])
+            auto = get_ig_automation_by_id(auto_id)
+            if auto:
+                is_following, api_username = check_if_user_follows(sender_id)
+                if is_following:
+                    increment_ig_automation_counter(auto["name"], "follow_gate_conversions")
+                    send_ig_automation_dm(auto, sender_id, username=api_username)
+                    conv_state = load_ig_conv_state()
+                    user_state = conv_state.get(str(sender_id))
+                    if user_state and user_state.get("step") == "awaiting_email":
+                        pass
+                    else:
+                        if str(sender_id) in conv_state:
+                            del conv_state[str(sender_id)]
+                    save_ig_conv_state(conv_state)
+                else:
+                    msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' again."
+                    quick_replies = [
+                        {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
+                        {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                    ]
+                    queue_ig_message(
+                        recipient_id=sender_id,
+                        text=msg,
+                        comment_id=None,
+                        is_private_reply=False,
+                        automation_name=auto.get("name"),
+                        delay=0,
+                        quick_replies=quick_replies
+                    )
+        except Exception as e:
+            print(f"[IGFOLLOW Error] Failed to process Yes tap: {e}", flush=True)
+        return
+
+    if postback_payload.startswith("IGFOLLOW_NO_"):
+        try:
+            auto_id = int(postback_payload.split("_")[-1])
+            auto = get_ig_automation_by_id(auto_id)
+            if auto:
+                msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' again."
+                quick_replies = [
+                    {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
+                    {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                ]
+                queue_ig_message(
+                    recipient_id=sender_id,
+                    text=msg,
+                    comment_id=None,
+                    is_private_reply=False,
+                    automation_name=auto.get("name"),
+                    delay=0,
+                    quick_replies=quick_replies
+                )
+        except Exception as e:
+            print(f"[IGFOLLOW Error] Failed to process No tap: {e}", flush=True)
+        return
+
     if postback_payload.startswith("flow:"):
         parts = postback_payload.split(":")
         if len(parts) >= 3:
@@ -2985,25 +3096,85 @@ def handle_ig_messaging(event):
                 auto = next((a for a in load_ig_automations() if a.get("name") == auto_name), None)
                 
                 if step == "awaiting_follow" and auto:
-                    increment_ig_automation_counter(auto_name, "follow_gate_conversions")
-                    dm_body = build_ig_dm_body(auto, "")
-                    if auto.get("email_capture") and auto.get("email_prompt"):
-                        send_ig_dm(sender_id, dm_body, automation_name=auto_name)
-                        send_ig_dm(sender_id, auto["email_prompt"], automation_name=auto_name, delay=1)
-                        increment_ig_automation_counter(auto_name, "dms_sent")
-                        increment_ig_automation_counter(auto_name, "dms_sent")
-                        
-                        conv_state[str(sender_id)] = {
-                            "step": "awaiting_email",
-                            "automation_name": auto_name,
-                            "updatedAt": int(time.time() * 1000)
-                        }
+                    text_lower = text.lower().strip()
+                    if text_lower in ("yes", "y", "yep", "yeah", "followed", "done"):
+                        is_following, api_username = check_if_user_follows(sender_id)
+                        if is_following:
+                            increment_ig_automation_counter(auto_name, "follow_gate_conversions")
+                            send_ig_automation_dm(auto, sender_id, username=api_username)
+                            
+                            conv_state = load_ig_conv_state()
+                            user_state = conv_state.get(str(sender_id))
+                            if user_state and user_state.get("step") == "awaiting_email":
+                                pass
+                            else:
+                                if str(sender_id) in conv_state:
+                                    del conv_state[str(sender_id)]
+                            save_ig_conv_state(conv_state)
+                            return
+                        else:
+                            msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' below."
+                            quick_replies = [
+                                {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
+                                {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                            ]
+                            queue_ig_message(
+                                recipient_id=sender_id,
+                                text=msg,
+                                comment_id=None,
+                                is_private_reply=False,
+                                automation_name=auto_name,
+                                delay=0,
+                                quick_replies=quick_replies
+                            )
+                            return
+                    elif text_lower in ("no", "nope", "not yet"):
+                        msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' below."
+                        quick_replies = [
+                            {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
+                            {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                        ]
+                        queue_ig_message(
+                            recipient_id=sender_id,
+                            text=msg,
+                            comment_id=None,
+                            is_private_reply=False,
+                            automation_name=auto_name,
+                            delay=0,
+                            quick_replies=quick_replies
+                        )
+                        return
                     else:
-                        send_ig_dm(sender_id, dm_body, automation_name=auto_name)
-                        increment_ig_automation_counter(auto_name, "dms_sent")
-                        del conv_state[str(sender_id)]
-                    save_ig_conv_state(conv_state)
-                    return
+                        is_following, api_username = check_if_user_follows(sender_id)
+                        if is_following:
+                            increment_ig_automation_counter(auto_name, "follow_gate_conversions")
+                            send_ig_automation_dm(auto, sender_id, username=api_username)
+                            
+                            conv_state = load_ig_conv_state()
+                            user_state = conv_state.get(str(sender_id))
+                            if user_state and user_state.get("step") == "awaiting_email":
+                                pass
+                            else:
+                                if str(sender_id) in conv_state:
+                                    del conv_state[str(sender_id)]
+                            save_ig_conv_state(conv_state)
+                            return
+                        else:
+                            msg = "You must follow us to receive the link! Please follow our page, then tap 'Yes' below."
+                            quick_replies = [
+                                {"content_type": "text", "title": "Yes", "payload": f"IGFOLLOW_YES_{auto['id']}"},
+                                {"content_type": "text", "title": "No", "payload": f"IGFOLLOW_NO_{auto['id']}"}
+                            ]
+                            queue_ig_message(
+                                recipient_id=sender_id,
+                                text=msg,
+                                comment_id=None,
+                                is_private_reply=False,
+                                automation_name=auto_name,
+                                delay=0,
+                                quick_replies=quick_replies
+                            )
+                            return
 
                 if step == "awaiting_email" and auto:
                     if is_valid_email(text):
