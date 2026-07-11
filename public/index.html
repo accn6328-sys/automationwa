@@ -2316,6 +2316,7 @@ function igwzUpdatePreview() {
   const askFollow = document.getElementById('sp-ask-follow') ? document.getElementById('sp-ask-follow').checked : igwzData.askFollow;
   const collectEmail = document.getElementById('sp-email') ? document.getElementById('sp-email').checked : igwzData.emailCapture;
   const publicReply = document.getElementById('igwz-public-reply') ? document.getElementById('igwz-public-reply').value.trim() : igwzData.publicReply;
+  const linkUrl = igwzData.linkUrl || '';
 
   // Public comment preview
   const commentBlock = document.getElementById('igwz-prev-comment');
