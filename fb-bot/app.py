@@ -3222,16 +3222,37 @@ def handle_ig_messaging(event):
     if postback_payload.startswith("IGBTN_"):
         auto_name = postback_payload[len("IGBTN_"):]
         auto = next((a for a in load_ig_automations() if a.get("name") == auto_name), None)
-        if auto and auto.get("button_follow_up_message") and auto.get("link_url"):
-            label = (auto.get("link_button_label") or "Open Link")[:20]
-            success, err = perform_ig_button_template_send(
-                sender_id, auto["button_follow_up_message"], auto["link_url"], label
-            )
-            if success:
-                increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
-                print(f"[Button DM] Sent follow-up to {sender_id}", flush=True)
+        if auto:
+            follow_up_msg = auto.get("button_follow_up_message") or ""
+            link_url      = auto.get("link_url") or ""
+
+            if not follow_up_msg:
+                # Try to get tap_message from the buttons array (multi-button style)
+                buttons = auto.get("buttons") or []
+                if buttons:
+                    follow_up_msg = buttons[0].get("tap_message") or ""
+
+            if follow_up_msg and link_url:
+                # Has URL → send as button template
+                label = (auto.get("link_button_label") or "Open Link")[:20]
+                success, err = perform_ig_button_template_send(
+                    sender_id, follow_up_msg, link_url, label
+                )
+                if success:
+                    increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                    print(f"[Button DM] Sent link follow-up to {sender_id}", flush=True)
+                else:
+                    print(f"[Button DM] Failed: {err}", flush=True)
+            elif follow_up_msg:
+                # No URL → send as plain text DM
+                success, err = perform_ig_dm_send(sender_id, follow_up_msg)
+                if success:
+                    increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
+                    print(f"[Button DM] Sent plain follow-up to {sender_id}", flush=True)
+                else:
+                    print(f"[Button DM] Plain send failed: {err}", flush=True)
             else:
-                print(f"[Button DM] Failed: {err}", flush=True)
+                print(f"[Button DM] No follow-up message configured for auto '{auto_name}'", flush=True)
         return
 
     # ── Multi-step Follow-up Sequence Tap Handler ──
