@@ -2720,7 +2720,7 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                         "payload": f"IGDETAILS_TAP_{auto.get('id')}_{run_id}"
                     }
                 ]
-                private_reply_text = "Hey! Thanks for commenting! Tap below to get the details:"
+                private_reply_text = personalize_ig_message(auto.get("dm_message"), username) if auto.get("dm_message") else "Hey! Thanks for commenting! Tap below to get the details:"
                 send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, quick_replies=quick_replies)
                 return True
             else:
