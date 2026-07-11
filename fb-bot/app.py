@@ -5746,6 +5746,24 @@ def ig_status_check():
         return jsonify({"ok": False, "linked": False, "error": f"API connection error: {str(e)}"})
 
 
+@app.route("/instagram/ui/debug-logs", methods=["GET"])
+def ig_debug_logs():
+    try:
+        queue = load_ig_messages_queue()
+        logs = load_ig_messages_log()
+        interactions = load_ig_user_interactions()
+        return jsonify({
+            "ok": True,
+            "queue_len": len(queue),
+            "queue": queue,
+            "logs_len": len(logs),
+            "logs": logs[-30:],
+            "interactions": list(interactions.items())[-20:]
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @app.route("/webhook", methods=["GET"])
 
 def verify():
