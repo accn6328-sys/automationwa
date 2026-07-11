@@ -2638,39 +2638,42 @@ def check_if_user_follows(user_id):
         return False, ""
 
 
-def send_ig_comment_interaction_reply(auto, comment_id, user_id, delay=0):
-    # Sends a private reply containing a "Send me the details" quick reply button
-    # Tapping this button registers a user interaction and triggers the actual payload delivery.
-    private_reply_text = "Hey! Thanks for commenting! Click the button below"
-    quick_replies = [{
-        "content_type": "text",
-        "title": "Send me the details",
-        "payload": f"IG_SEND_DETAILS_{auto['id']}"
-    }]
-    queue_ig_message(
-        recipient_id=user_id,
-        text=private_reply_text,
-        comment_id=comment_id,
-        is_private_reply=True,
-        automation_name=auto.get("name"),
-        delay=delay,
-        quick_replies=quick_replies
-    )
-    print(f"  [Comment Interaction Reply] Queued private reply with 'Send me the details' button to {user_id}", flush=True)
+def build_ig_private_reply_body(auto, username=""):
+    parts = []
+    dm = personalize_ig_message(auto.get("dm_message", ""), username)
+    if dm:
+        parts.append(dm)
+        
+    buttons = auto.get("buttons") or []
+    for btn in buttons:
+        title = btn.get("title") or "Link"
+        url = btn.get("url")
+        if url:
+            parts.append(f"{title}: {url}")
+            
+    link_url = auto.get("link_url")
+    if link_url and not any(btn.get("url") == link_url for btn in buttons):
+        btn_label = auto.get("link_button_label") or "Link"
+        parts.append(f"{btn_label}: {link_url}")
+        
+    return "\n\n".join(p for p in parts if p)
 
 
 def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0):
     action = auto.get("action", "both")
     if action == "flow" and auto.get("link_url") and user_id:
         if comment_id:
-            send_ig_comment_interaction_reply(auto, comment_id, user_id, delay)
+            flow_url = auto.get("link_url")
+            text = f"Click the link to start: {flow_url}"
+            send_ig_private_reply(comment_id, text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
             return True
         start_ig_flow(user_id, auto["link_url"], username)
         return True
 
     if action in ("dm", "both") and auto.get("dm_message"):
         if comment_id:
-            send_ig_comment_interaction_reply(auto, comment_id, user_id, delay)
+            text_body = build_ig_private_reply_body(auto, username)
+            send_ig_private_reply(comment_id, text_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
             return True
         dm_body = build_ig_dm_body(auto, username)
         steps = auto.get("follow_up_steps") or []
