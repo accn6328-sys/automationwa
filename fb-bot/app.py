@@ -2627,11 +2627,15 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
         action = auto.get("action", "both")
 
         # Handle "Ask for Follow" Gate
+        # Handle "Ask for Follow" Gate
         if auto.get("ask_follow") and auto.get("follow_prompt") and user_id:
             conv_state = load_ig_conv_state()
             user_state = conv_state.get(str(user_id))
             if not user_state or user_state.get("step") != "awaiting_follow":
-                send_ig_dm(user_id, auto["follow_prompt"], automation_name=auto.get("name"), delay=delay)
+                if comment_id:
+                    send_ig_private_reply(comment_id, auto["follow_prompt"], recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                else:
+                    send_ig_dm(user_id, auto["follow_prompt"], automation_name=auto.get("name"), delay=delay)
                 increment_ig_automation_counter(auto["name"], "dms_sent")
                 
                 conv_state[str(user_id)] = {
@@ -2677,6 +2681,14 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                 save_ig_conv_state(conv_state)
                 
             elif (auto.get("button_enabled") and (auto.get("buttons") or auto.get("button_label"))) or has_tap_step_0:
+                if comment_id:
+                    # Send an initial private reply to open the 24-hour window
+                    private_reply_text = f"Thanks for your comment! Check the options below:"
+                    send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay)
+                    button_delay = delay + 2
+                else:
+                    button_delay = delay
+
                 if auto.get("buttons"):
                     queue_ig_message(
                         recipient_id=user_id,
@@ -2684,7 +2696,7 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         comment_id=None,
                         is_private_reply=False,
                         automation_name=auto.get("name"),
-                        delay=delay,
+                        delay=button_delay,
                         buttons=auto.get("buttons")
                     )
                 else:
@@ -2702,7 +2714,7 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         comment_id=None,
                         is_private_reply=False,
                         automation_name=auto.get("name"),
-                        delay=delay,
+                        delay=button_delay,
                         quick_replies=quick_replies
                     )
                 increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
