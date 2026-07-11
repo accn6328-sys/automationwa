@@ -1607,7 +1607,7 @@ def build_ig_dm_body(auto, username=""):
     dm = personalize_ig_message(auto.get("dm_message", ""), username)
     if dm:
         parts.append(dm)
-    if auto.get("link_url"):
+    if auto.get("link_url") and not auto.get("button_enabled"):
         parts.append(auto["link_url"])
     return "\n\n".join(p for p in parts if p)
 
