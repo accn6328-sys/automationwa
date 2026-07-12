@@ -1125,8 +1125,28 @@
             </label>
           </div>
           <div id="sp-public-reply-field-reveal" style="display:none; margin-bottom: 16px;">
-            <label class="igwz-label">Public Comment Reply Text</label>
-            <input type="text" id="igwz-public-reply" class="igwz-input" placeholder="Thanks @{username}! Check your DMs 📥">
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div>
+                <label class="igwz-label" style="margin-bottom: 4px;">Reply Variation 1 *</label>
+                <input type="text" id="igwz-public-reply-1" class="igwz-input" placeholder="Thanks @{username}! Check your DMs 📥" oninput="igwzUpdatePreview();" style="margin-bottom:0;">
+              </div>
+              <div>
+                <label class="igwz-label" style="margin-bottom: 4px;">Reply Variation 2</label>
+                <input type="text" id="igwz-public-reply-2" class="igwz-input" placeholder="Reply Variation 2 (optional)" oninput="igwzUpdatePreview();" style="margin-bottom:0;">
+              </div>
+              <div>
+                <label class="igwz-label" style="margin-bottom: 4px;">Reply Variation 3</label>
+                <input type="text" id="igwz-public-reply-3" class="igwz-input" placeholder="Reply Variation 3 (optional)" oninput="igwzUpdatePreview();" style="margin-bottom:0;">
+              </div>
+              <div>
+                <label class="igwz-label" style="margin-bottom: 4px;">Reply Variation 4</label>
+                <input type="text" id="igwz-public-reply-4" class="igwz-input" placeholder="Reply Variation 4 (optional)" oninput="igwzUpdatePreview();" style="margin-bottom:0;">
+              </div>
+              <div>
+                <label class="igwz-label" style="margin-bottom: 4px;">Reply Variation 5</label>
+                <input type="text" id="igwz-public-reply-5" class="igwz-input" placeholder="Reply Variation 5 (optional)" oninput="igwzUpdatePreview();" style="margin-bottom:0;">
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1987,6 +2007,7 @@ let igwzData = {
   scope: 'all',
   dmMessage: '',
   publicReply: '',
+  publicReplyTexts: [],
   askFollow: false,
   followPrompt: '',
   emailCapture: false,
@@ -1997,7 +2018,7 @@ let igwzData = {
 
 function openCreateIgRuleModal() {
   editingIgRuleIdx = null;
-  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:0 };
+  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', publicReplyTexts:[], askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:0 };
   igwzGoToStep(1);
   igwzReset();
   document.getElementById('ig-rule-modal').classList.add('open');
@@ -2021,6 +2042,7 @@ function openEditIgRuleModal(idx) {
     post_ids: rule.post_ids ? [...rule.post_ids] : [],
     dmMessage: rule.dm_message || '',
     publicReply: rule.reply || '',
+    publicReplyTexts: rule.reply_texts || [],
     askFollow: !!rule.ask_follow,
     followPrompt: rule.follow_prompt || '',
     emailCapture: !!rule.email_capture,
@@ -2054,9 +2076,13 @@ function openEditIgRuleModal(idx) {
   spSelectTriggerMode(igwzData.trigger === 'keyword' ? 'keyword' : 'all');
   igwzRenderKwTags();
   
-  const replyText = rule.reply || '';
-  document.getElementById('sp-public-reply-toggle').checked = !!replyText;
-  document.getElementById('igwz-public-reply').value = replyText;
+  const replyTexts = rule.reply_texts || [];
+  const hasReply = replyTexts.length > 0 || !!rule.reply;
+  document.getElementById('sp-public-reply-toggle').checked = hasReply;
+  for (let i = 1; i <= 5; i++) {
+    const val = replyTexts[i - 1] || (i === 1 ? rule.reply : '') || '';
+    document.getElementById(`igwz-public-reply-${i}`).value = val;
+  }
   toggleSpPublicReplyField();
 
   // fill step 3
@@ -2111,7 +2137,10 @@ function igwzReset() {
   document.querySelectorAll('.igwz-type-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('igwz-name').value = '';
   document.getElementById('igwz-dm').value = '';
-  document.getElementById('igwz-public-reply').value = '';
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById(`igwz-public-reply-${i}`);
+    if (el) el.value = '';
+  }
   
   document.getElementById('sp-public-reply-toggle').checked = false;
   toggleSpPublicReplyField();
@@ -2331,7 +2360,19 @@ function igwzUpdatePreview() {
   const emailPrompt = document.getElementById('sp-email-prompt') ? document.getElementById('sp-email-prompt').value.trim() : igwzData.emailPrompt;
   const askFollow = document.getElementById('sp-ask-follow') ? document.getElementById('sp-ask-follow').checked : igwzData.askFollow;
   const collectEmail = document.getElementById('sp-email') ? document.getElementById('sp-email').checked : igwzData.emailCapture;
-  const publicReply = document.getElementById('igwz-public-reply') ? document.getElementById('igwz-public-reply').value.trim() : igwzData.publicReply;
+  let publicReply = '';
+  const replyToggleEl = document.getElementById('sp-public-reply-toggle');
+  if (replyToggleEl && replyToggleEl.checked) {
+    for (let i = 1; i <= 5; i++) {
+      const el = document.getElementById(`igwz-public-reply-${i}`);
+      if (el && el.value.trim()) {
+        publicReply = el.value.trim();
+        break;
+      }
+    }
+  } else {
+    publicReply = igwzData.publicReply;
+  }
   const linkUrl = igwzData.linkUrl || '';
 
   // Public comment preview
@@ -2412,7 +2453,21 @@ async function igwzNext() {
     if (igwzData.trigger === 'keyword' && igwzData.keywords.length === 0) return alert('Please add at least one keyword.');
     
     const replyToggle = document.getElementById('sp-public-reply-toggle').checked;
-    igwzData.publicReply = replyToggle ? document.getElementById('igwz-public-reply').value.trim() : '';
+    if (replyToggle) {
+      const replies = [];
+      for (let i = 1; i <= 5; i++) {
+        const val = document.getElementById(`igwz-public-reply-${i}`).value.trim();
+        if (val) replies.push(val);
+      }
+      if (replies.length === 0) {
+        return alert('Please enter at least one public comment reply variation.');
+      }
+      igwzData.publicReplyTexts = replies;
+      igwzData.publicReply = replies[0];
+    } else {
+      igwzData.publicReplyTexts = [];
+      igwzData.publicReply = '';
+    }
     
     igwzGoToStep(3);
   } else if (igwzStep === 3) {
@@ -2501,6 +2556,7 @@ async function igwzNext() {
       post_ids: igwzData.post_ids || [],
       dm_message: igwzData.dmMessage,
       reply: hasComment ? igwzData.publicReply : '',
+      reply_texts: hasComment ? igwzData.publicReplyTexts : [],
       action: hasComment ? (igwzData.publicReply ? 'both' : 'dm') : 'dm',
       ask_follow: igwzData.askFollow,
       follow_prompt: igwzData.followPrompt,
