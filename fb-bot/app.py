@@ -3143,8 +3143,8 @@ def handle_official_wa_message(msg, contact):
                         image_base64=reply_image,
                         voice_base64=reply_voice
                     )
-                             matched = True
-                             break
+                    matched = True
+                    break
             except Exception as err:
                 print(f"Failed to send official WhatsApp reply: {err}", flush=True)
             matched = True
