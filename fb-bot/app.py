@@ -2529,10 +2529,16 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons):
 
 
 def get_shopify_products_python():
-    # Use public storefront JSON endpoint — no API token required!
+    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN") or '2txc0h-0a.myshopify.com'
+    if not admin_token:
+        return []
+    url = f"https://{store_domain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status"
+    headers = {
+        "X-Shopify-Access-Token": admin_token
+    }
     try:
-        url = "https://www.radikikk.shop/collections/all/products.json?limit=250"
-        r = requests.get(url, timeout=8)
+        r = requests.get(url, headers=headers, timeout=8)
         if r.status_code == 200:
             return r.json().get("products") or []
     except Exception as e:
@@ -2546,17 +2552,18 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     # 1. Build a COMPACT context to avoid token overflow causing truncated sentences
     context = ""
 
-    # Load Shopify products from public storefront (no auth required)
+    # Load Shopify products from Admin API
     try:
         shopify_products = get_shopify_products_python()
         if shopify_products and len(shopify_products) > 0:
-            context += "Store Products (from www.radikikk.shop/collections/all):\n"
+            context += "Store Products (from radikikk.shop):\n"
             for p in shopify_products:
-                variants = p.get("variants") or []
-                price = variants[0].get("price") if variants else "N/A"
-                handle = p.get("handle", "")
-                product_url = f"https://www.radikikk.shop/products/{handle}"
-                context += f"- \"{p.get('title')}\" | Price: ₹{price} | Link: {product_url}\n"
+                if p.get("status") == "active":
+                    variants = p.get("variants") or []
+                    price = variants[0].get("price") if variants else "N/A"
+                    handle = p.get("handle", "")
+                    product_url = f"https://radikikk.shop/products/{handle}"
+                    context += f"- \"{p.get('title')}\" | Price: ₹{price} | Link: {product_url}\n"
             context += "\n"
     except Exception as e:
         print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)

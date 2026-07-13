@@ -917,10 +917,19 @@ function startReposterDaemon() {
 }
 
   async function getShopifyProducts() {
-    // Use the public storefront JSON endpoint — no API token required!
+    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || '2txc0h-0a.myshopify.com';
+    if (!adminToken) {
+        return [];
+    }
     try {
-        const url = `https://www.radikikk.shop/collections/all/products.json?limit=250`;
-        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const url = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status`;
+        const response = await fetch(url, {
+            headers: {
+                "X-Shopify-Access-Token": adminToken
+            },
+            signal: AbortSignal.timeout(8000)
+        });
         if (response.ok) {
             const data = await response.json();
             return data.products || [];
@@ -937,16 +946,18 @@ async function handleAIFallback(sock, senderJid, text, senderName) {
     // 1. Build a COMPACT product context to avoid token overflow
     let context = "";
 
-    // Load Shopify products from public storefront (no auth needed)
+    // Load Shopify products from Admin API
     try {
         const shopifyProducts = await getShopifyProducts();
         if (shopifyProducts && shopifyProducts.length > 0) {
-            context += "Store Products (from www.radikikk.shop/collections/all):\n";
+            context += "Store Products (from radikikk.shop):\n";
             shopifyProducts.forEach(p => {
-                const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
-                const handle = p.handle || "";
-                const storeUrl = `https://www.radikikk.shop/products/${handle}`;
-                context += `- "${p.title}" | Price: ₹${price} | Link: ${storeUrl}\n`;
+                if (p.status === "active") {
+                    const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
+                    const handle = p.handle || "";
+                    const storeUrl = `https://radikikk.shop/products/${handle}`;
+                    context += `- "${p.title}" | Price: ₹${price} | Link: ${storeUrl}\n`;
+                }
             });
             context += "\n";
         }
