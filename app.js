@@ -2250,6 +2250,14 @@ async function connectToWhatsApp() {
                     text = msg.message.buttonsResponseMessage.selectedButtonId || '';
                 } else if (msg.message?.templateButtonReplyMessage) {
                     text = msg.message.templateButtonReplyMessage.selectedId || '';
+                } else if (msg.message?.listResponseMessage) {
+                    text = msg.message.listResponseMessage.singleSelectReply?.selectedRowId || '';
+                } else if (msg.message?.orderMessage) {
+                    const orderMsg = msg.message.orderMessage;
+                    addLog(`[Baileys OrderMessage] received: ${JSON.stringify(orderMsg)}`);
+                    if (orderMsg.token) {
+                        text = `order_variant_${orderMsg.token}`;
+                    }
                 }
                 
                 if (!text) continue;

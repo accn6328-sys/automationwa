@@ -2855,7 +2855,7 @@ def handle_official_wa_message(msg, contact):
     sender_name = contact.get("profile", {}).get("name", "WhatsApp User")
     msg_type = msg.get("type")
     
-    if msg_type not in ["text", "button", "interactive"] or not sender_wa_id:
+    if msg_type not in ["text", "button", "interactive", "order"] or not sender_wa_id:
         return
         
     text = ""
@@ -2869,6 +2869,18 @@ def handle_official_wa_message(msg, contact):
             text = interactive_data.get("button_reply", {}).get("id", "").strip()
         elif interactive_data.get("type") == "list_reply":
             text = interactive_data.get("list_reply", {}).get("id", "").strip()
+    elif msg_type == "order":
+        order_data = msg.get("order", {})
+        items = order_data.get("product_items", [])
+        if items:
+            variant_id = items[0].get("product_retailer_id", "").strip()
+            if "shopify_" in variant_id:
+                parts = variant_id.split("_")
+                if len(parts) >= 3:
+                    variant_id = parts[2]
+                elif len(parts) == 2:
+                    variant_id = parts[1]
+            text = f"order_variant_{variant_id}"
         
     if not text:
         return
