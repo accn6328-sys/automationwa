@@ -2398,6 +2398,85 @@ def send_official_wa_list(to_number, header, body, button_text, rows):
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
 
+
+def send_official_wa_single_product(to_number, catalog_id, product_retailer_id, body_text=None):
+    token = os.getenv("PAGE_ACCESS_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    clean_to = re.sub(r"\D", "", to_number)
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_to,
+        "type": "interactive",
+        "interactive": {
+            "type": "product",
+            "action": {
+                "catalog_id": catalog_id,
+                "product_retailer_id": str(product_retailer_id)
+            }
+        }
+    }
+    if body_text:
+        payload["interactive"]["body"] = {
+            "text": body_text
+        }
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    r.raise_for_status()
+
+
+def send_official_wa_multi_products(to_number, catalog_id, matched_products, body_text="Check out our catalog!"):
+    token = os.getenv("PAGE_ACCESS_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    clean_to = re.sub(r"\D", "", to_number)
+    
+    product_items = []
+    for p in matched_products:
+        product_items.append({
+            "product_retailer_id": str(p.get("variant_id"))
+        })
+        
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_to,
+        "type": "interactive",
+        "interactive": {
+            "type": "product_list",
+            "header": {
+                "type": "text",
+                "text": "Catalog"
+            },
+            "body": {
+                "text": body_text
+            },
+            "action": {
+                "catalog_id": catalog_id,
+                "sections": [
+                    {
+                        "title": "Shopify Products",
+                        "product_items": product_items
+                    }
+                ]
+            }
+        }
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    r.raise_for_status()
+
 def send_official_wa_catalog(to_number, body_text="Check out our catalog!"):
     token = os.getenv("PAGE_ACCESS_TOKEN")
     phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
@@ -2554,7 +2633,7 @@ def send_official_wa_message(to_number, text=None, image_base64=None, voice_base
             raise err
 
 
-def send_official_wa_interactive_buttons(to_number, body_text, buttons):
+def send_official_wa_interactive_buttons(to_number, body_text, buttons, image_url=None):
     token = os.getenv("PAGE_ACCESS_TOKEN")
     phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
     if not token or not phone_id:
@@ -2589,6 +2668,13 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons):
             }
         }
     }
+    if image_url:
+        payload["interactive"]["header"] = {
+            "type": "image",
+            "image": {
+                "link": image_url
+            }
+        }
     try:
         r = requests.post(url, headers=headers, json=payload, timeout=15)
         r.raise_for_status()
@@ -2603,7 +2689,7 @@ def get_shopify_products_python():
     store_domain = os.getenv("SHOPIFY_STORE_DOMAIN") or '2txc0h-0a.myshopify.com'
     if not admin_token:
         return []
-    url = f"https://{store_domain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status"
+    url = f"https://{store_domain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status,images,body_html"
     headers = {
         "X-Shopify-Access-Token": admin_token
     }
@@ -2642,11 +2728,22 @@ def find_matching_shopify_products(text, products):
         if matches:
             variants = p.get("variants") or []
             if variants:
+                body_html = p.get("body_html") or ""
+                clean_desc = re.sub(r'<[^>]+>', '', body_html).strip()
+                clean_desc = re.sub(r'\s+', ' ', clean_desc)
+                if len(clean_desc) > 120:
+                    clean_desc = clean_desc[:117] + "..."
+                    
+                images = p.get("images") or []
+                image_url = images[0].get("src") if images else None
+                
                 matched.append({
                     "title": title,
                     "variant_id": variants[0].get("id"),
                     "price": variants[0].get("price"),
-                    "handle": p.get("handle", "")
+                    "handle": p.get("handle", ""),
+                    "description": clean_desc,
+                    "image_url": image_url
                 })
     return matched
 
@@ -3301,33 +3398,50 @@ def handle_official_wa_message(msg, contact):
         matched_products = find_matching_shopify_products(text, shopify_products)
         
         if matched_products:
-            if len(matched_products) == 1:
-                p = matched_products[0]
-                body_text = f"🛍️ *{p['title']}*\nPrice: ₹{p['price']}\nLink: https://radikikk.shop/products/{p['handle']}\n\nWould you like to order this product or ask questions about it?"
+            catalog_id = os.getenv("META_CATALOG_ID")
+            if catalog_id:
+                try:
+                    # Send native WhatsApp Multi-Product/Single-Product native commerce layout!
+                    if len(matched_products) == 1:
+                        p = matched_products[0]
+                        send_official_wa_single_product(
+                            to_number=sender_wa_id,
+                            catalog_id=catalog_id,
+                            product_retailer_id=p["variant_id"],
+                            body_text=f"Check out *{p['title']}*! Price: ₹{p['price']}"
+                        )
+                        print(f"[Shopify Intercept] Sent native single product card for {p['title']} to {sender_wa_id}", flush=True)
+                    else:
+                        send_official_wa_multi_products(
+                            to_number=sender_wa_id,
+                            catalog_id=catalog_id,
+                            matched_products=matched_products[:30],
+                            body_text="We found these products in our catalog. View and select to order!"
+                        )
+                        print(f"[Shopify Intercept] Sent native Multi-Product Carousel catalog to {sender_wa_id}", flush=True)
+                    return
+                except Exception as cat_err:
+                    print(f"[Shopify Intercept Catalog Error] Native Catalog send failed: {cat_err}. Falling back to custom cards.", flush=True)
+
+            # Fallback (or default if catalog_id is not set) -> Send beautiful custom card messages
+            for p in matched_products[:3]:
+                body_text = f"🛍️ *{p['title']}*\n\nPrice: ₹{p['price']}\n\n_{p['description']}_\n\nLink: https://radikikk.shop/products/{p['handle']}"
                 buttons = [
                     {"id": f"order_variant_{p['variant_id']}", "title": "Order Now"},
                     {"id": f"ask_variant_{p['variant_id']}", "title": "Ask Details"}
                 ]
                 try:
-                    send_official_wa_interactive_buttons(sender_wa_id, body_text=body_text, buttons=buttons)
-                    print(f"[Shopify Intercept] Sent interactive buttons for {p['title']} to {sender_wa_id}", flush=True)
-                    return
+                    send_official_wa_interactive_buttons(
+                        to_number=sender_wa_id,
+                        body_text=body_text,
+                        buttons=buttons,
+                        image_url=p.get("image_url")
+                    )
+                    print(f"[Shopify Intercept] Sent card for {p['title']} to {sender_wa_id}", flush=True)
+                    time.sleep(0.8) # Small delay to keep messages ordered
                 except Exception as e:
                     print(f"[Shopify Intercept Error] {e}", flush=True)
-            else:
-                body_text = "Which product are you interested in?"
-                buttons = []
-                for p in matched_products[:3]:
-                    short_title = p['title']
-                    if len(short_title) > 13:
-                        short_title = short_title[:10] + "..."
-                    buttons.append({"id": f"order_variant_{p['variant_id']}", "title": f"Order {short_title}"})
-                try:
-                    send_official_wa_interactive_buttons(sender_wa_id, body_text=body_text, buttons=buttons)
-                    print(f"[Shopify Intercept] Sent multi product buttons to {sender_wa_id}", flush=True)
-                    return
-                except Exception as e:
-                    print(f"[Shopify Intercept Error] {e}", flush=True)
+            return
 
         handle_wa_ai_fallback(sender_wa_id, text, sender_name)
 

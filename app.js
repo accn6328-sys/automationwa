@@ -999,11 +999,21 @@ function findMatchingShopifyProducts(text, products) {
         }
         
         if (matches && p.variants && p.variants[0]) {
+            const bodyHtml = p.body_html || "";
+            let cleanDesc = bodyHtml.replace(/<[^>]+>/g, '').trim();
+            cleanDesc = cleanDesc.replace(/\s+/g, ' ');
+            if (cleanDesc.length > 120) {
+                cleanDesc = cleanDesc.slice(0, 117) + "...";
+            }
+            const imageUrl = p.images && p.images[0] ? p.images[0].src : null;
+
             matched.push({
                 title: p.title,
                 variant_id: p.variants[0].id,
                 price: p.variants[0].price,
-                handle: p.handle
+                handle: p.handle,
+                description: cleanDesc,
+                image_url: imageUrl
             });
         }
     }
@@ -1018,7 +1028,7 @@ function findMatchingShopifyProducts(text, products) {
         return [];
     }
     try {
-        const url = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status`;
+        const url = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status,images,body_html`;
         const response = await fetch(url, {
             headers: {
                 "X-Shopify-Access-Token": adminToken
@@ -2661,41 +2671,74 @@ async function connectToWhatsApp() {
                     const matchedProducts = findMatchingShopifyProducts(text, shopifyProducts);
                     
                     if (matchedProducts.length > 0) {
-                        if (matchedProducts.length === 1) {
-                            const p = matchedProducts[0];
-                            const bodyText = `🛍️ *${p.title}*\nPrice: ₹${p.price}\nLink: https://radikikk.shop/products/${p.handle}\n\nWould you like to order this product or ask questions about it?`;
+                        const catalogId = process.env.META_CATALOG_ID;
+                        if (catalogId) {
+                            try {
+                                if (matchedProducts.length === 1) {
+                                    const p = matchedProducts[0];
+                                    await sock.sendMessage(senderJid, {
+                                        product: {
+                                            product: {
+                                                productId: String(p.variant_id)
+                                            },
+                                            businessOwnerJid: sock.user.id.split(':')[0] + '@s.whatsapp.net'
+                                        },
+                                        caption: `Check out *${p.title}*! Price: ₹${p.price}`
+                                    });
+                                    addLog(`[Shopify Intercept] Sent native single product for ${p.title} to ${senderName}`);
+                                } else {
+                                    // Send list message with products
+                                    const sections = [{
+                                        title: 'Shopify Products',
+                                        rows: matchedProducts.slice(0, 30).map(p => ({
+                                            title: p.title,
+                                            rowId: `order_variant_${p.variant_id}`,
+                                            description: `Price: ₹${p.price}`
+                                        }))
+                                    }];
+                                    await sock.sendMessage(senderJid, {
+                                        text: 'We found these products in our catalog. Click below to view!',
+                                        buttonText: 'View Products',
+                                        sections: sections
+                                    });
+                                    addLog(`[Shopify Intercept] Sent native multi-product list to ${senderName}`);
+                                }
+                                continue;
+                            } catch (catErr) {
+                                addLog(`[Shopify Intercept] Native catalog send failed, falling back to cards: ${catErr.message}`);
+                            }
+                        }
+
+                        // Fallback (or default if catalogId is not set) -> Send beautiful custom card messages
+                        for (const p of matchedProducts.slice(0, 3)) {
+                            const bodyText = `🛍️ *${p.title}*\n\nPrice: ₹${p.price}\n\n_${p.description}_\n\nLink: https://radikikk.shop/products/${p.handle}`;
                             const buttons = [
                                 { buttonId: `order_variant_${p.variant_id}`, buttonText: { displayText: "Order Now" }, type: 1 },
                                 { buttonId: `ask_variant_${p.variant_id}`, buttonText: { displayText: "Ask Details" }, type: 1 }
                             ];
-                            await sock.sendMessage(senderJid, {
-                                text: bodyText,
-                                buttons: buttons,
-                                headerType: 1
-                            });
-                            addLog(`[Shopify Intercept] Sent single product button to ${senderName}`);
-                            continue;
-                        } else {
-                            const bodyText = "Which product are you interested in?";
-                            const buttons = matchedProducts.slice(0, 3).map(p => {
-                                let shortTitle = p.title;
-                                if (shortTitle.length > 13) {
-                                    shortTitle = shortTitle.slice(0, 10) + "...";
+                            
+                            try {
+                                if (p.image_url) {
+                                    await sock.sendMessage(senderJid, {
+                                        image: { url: p.image_url },
+                                        caption: bodyText,
+                                        buttons: buttons,
+                                        headerType: 4 // Image header
+                                    });
+                                } else {
+                                    await sock.sendMessage(senderJid, {
+                                        text: bodyText,
+                                        buttons: buttons,
+                                        headerType: 1
+                                    });
                                 }
-                                return {
-                                    buttonId: `order_variant_${p.variant_id}`,
-                                    buttonText: { displayText: `Order ${shortTitle}` },
-                                    type: 1
-                                };
-                            });
-                            await sock.sendMessage(senderJid, {
-                                text: bodyText,
-                                buttons: buttons,
-                                headerType: 1
-                            });
-                            addLog(`[Shopify Intercept] Sent multi product buttons to ${senderName}`);
-                            continue;
+                                addLog(`[Shopify Intercept] Sent card for ${p.title} to ${senderName}`);
+                                await new Promise(r => setTimeout(r, 800)); // Small interval
+                            } catch (e) {
+                                addLog(`[Shopify Intercept Card Error] ${e.message}`);
+                            }
                         }
+                        continue;
                     }
 
                     await handleAIFallback(sock, senderJid, text, senderName);
