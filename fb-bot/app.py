@@ -2085,7 +2085,9 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
                 f"🛍️ *Shopify Order ID*: #{order_number}\n"
                 f"We will update you once your order is dispatched."
             )
-            send_official_wa_message(sender_wa_id, text=confirmation_msg)
+            lang = user_state.get("language", "english")
+            translated_confirmation = translate_preserving_links(confirmation_msg, lang)
+            send_official_wa_message(sender_wa_id, text=translated_confirmation)
         else:
             err_details = json.dumps(data.get("errors")) if "errors" in data else json.dumps(data)
             raise Exception(f"Shopify API responded with status {r.status_code}: {err_details}")
@@ -2108,6 +2110,224 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
             )
         except:
             pass
+
+
+LOCALIZED_PROMPTS = {
+    "english": {
+        "choose_lang": "Please select your preferred language:",
+        "payment_choice": "How would you like to pay? Please reply with a number or click a button:",
+        "cancel_confirm": "No problem, flow cancelled. Message us again anytime!",
+        "cod_confirm": "Thanks {name}! Your Cash on Delivery order is confirmed.",
+        "online_link_msg": "💳 *Online Payment Required*\n\nPlease complete your payment of *₹{price:.2f}* using the link below:\n\n🔗 {pl_url}\n\n⏳ _Note: Both the QR code and payment link will expire in 20 minutes._",
+        "online_qr_caption": "Scan to Pay using any UPI app (Google Pay, PhonePe, Paytm, etc.)",
+        "failed_payment_gen": "⚠️ Sorry, we had trouble generating your online payment link. Please try again or select Cash on Delivery.",
+        "name_prompt": "What is your full name? 👤",
+        "phone_prompt": "What is your mobile number? 📞",
+        "address_prompt": "What is your shipping address? 🏠",
+        "pincode_prompt": "What is your Pin code? 📮",
+        "cod_btn": "Cash on Delivery",
+        "online_btn": "Online Payment",
+        "cancel_btn": "Cancel"
+    },
+    "malayalam": {
+        "choose_lang": "നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:",
+        "payment_choice": "നിങ്ങൾ എങ്ങനെയാണ് പണമടയ്ക്കാൻ ആഗ്രഹിക്കുന്നത്? ദയവായി താഴെ നൽകിയിരിക്കുന്നതിൽ നിന്നും തിരഞ്ഞെടുക്കുക:",
+        "cancel_confirm": "ശരി, ഓർഡർ ക്യാൻസൽ ചെയ്തിട്ടുണ്ട്. എപ്പോൾ വേണമെങ്കിലും ഞങ്ങൾക്ക് മെസ്സേജ് അയക്കാവുന്നതാണ്!",
+        "cod_confirm": "നന്ദി {name}! നിങ്ങളുടെ ക്യാഷ് ഓൺ ഡെലിവറി ഓർഡർ കൺഫേം ചെയ്തിട്ടുണ്ട്.",
+        "online_link_msg": "💳 *ഓൺലൈൻ പേയ്മെന്റ് ആവശ്യമാണ്*\n\nതാഴെ കാണുന്ന ലിങ്ക് ഉപയോഗിച്ച് *₹{price:.2f}* പണമടയ്ക്കുക:\n\n🔗 {pl_url}\n\n⏳ _ശ്രദ്ധിക്കുക: യുപിഐ ക്യുആർ കോഡും ലിങ്കും 20 മിനിറ്റിനുള്ളിൽ കാലാവധി തീരുന്നതാണ്._",
+        "online_qr_caption": "ഏതെങ്കിലും യുപിഐ ആപ്പ് (Google Pay, PhonePe, Paytm മുതലായവ) ഉപയോഗിച്ച് സ്കാൻ ചെയ്ത് പണമടയ്ക്കുക",
+        "failed_payment_gen": "⚠️ ഖേദിക്കുന്നു, ഓൺലൈൻ പേയ്മെന്റ് ലിങ്ക് ജനറേറ്റ് ചെയ്യാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക അല്ലെങ്കിൽ ക്യാഷ് ഓൺ ഡെലിവറി തിരഞ്ഞെടുക്കുക.",
+        "name_prompt": "നിങ്ങളുടെ മുഴുവൻ പേര് എന്താണ്? 👤",
+        "phone_prompt": "ഫോൺ നമ്പർ എത്രയാണ്? 📞",
+        "address_prompt": "സാധനം അയക്കേണ്ട വിലാസം (Address) എന്താണ്? 🏠",
+        "pincode_prompt": "പിൻകോഡ് (Pin code) എത്രയാണ്? 📮",
+        "cod_btn": "ക്യാഷ് ഓൺ ഡെലിവറി (COD)",
+        "online_btn": "ഓൺലൈൻ പേയ്മെന്റ്",
+        "cancel_btn": "ക്യാൻസൽ ചെയ്യുക"
+    },
+    "hindi": {
+        "choose_lang": "कृपया अपनी पसंदीदा भाषा चुनें:",
+        "payment_choice": "आप भुगतान कैसे करना चाहेंगे? कृपया नीचे दिए गए विकल्पों में से चुनें:",
+        "cancel_confirm": "कोई बात नहीं, ऑर्डर रद्द कर दिया गया है। हमें फिर कभी भी मैसेज करें!",
+        "cod_confirm": "धन्यवाद {name}! आपका कैश ऑन डिलीवरी ऑर्डर स्वीकार कर लिया गया है।",
+        "online_link_msg": "💳 *ऑनलाइन भुगतान आवश्यक*\n\nकृपया नीचे दिए गए लिंक का उपयोग करके *₹{price:.2f}* का भुगतान पूरा करें:\n\n🔗 {pl_url}\n\n⏳ _नोट: क्यूआर कोड और भुगतान लिंक दोनों 20 मिनट में समाप्त हो जाएंगे।_",
+        "online_qr_caption": "किसी भी यूपीआई ऐप (Google Pay, PhonePe, Paytm आदि) का उपयोग करके भुगतान करने के लिए स्कैन करें",
+        "failed_payment_gen": "⚠️ क्षमा करें, ऑनलाइन भुगतान लिंक बनाने में समस्या हुई। कृपया पुनः प्रयास करें या कैश ऑन डिलीवरी चुनें।",
+        "name_prompt": "आपका पूरा नाम क्या है? 👤",
+        "phone_prompt": "आपका मोबाइल नंबर क्या है? 📞",
+        "address_prompt": "आपका पता क्या है? 🏠",
+        "pincode_prompt": "आपका पिन कोड क्या है? 📮",
+        "cod_btn": "कैश ऑन डिलीवरी",
+        "online_btn": "ऑनलाइन भुगतान",
+        "cancel_btn": "रद्द करें"
+    },
+    "telugu": {
+        "choose_lang": "దయచేసి మీ ప్రాధాన్యత భాషను ఎంచుకోండి:",
+        "payment_choice": "మీరు ఎలా చెల్లించాలనుకుంటున్నారు? దయచేసి క్రింది ఎంపికల నుండి ఎంచుకోండి:",
+        "cancel_confirm": "అలాగే, ఆర్డర్ రద్దు చేయబడింది. ఎప్పుడైనా మమ్మల్ని సంప్రదించవచ్చు!",
+        "cod_confirm": "ధన్యవాదాలు {name}! మీ క్యాష్ ఆన్ డెలివరీ ఆర్డర్ విజయవంతంగా నమోదైంది.",
+        "online_link_msg": "💳 *ఆన్‌లైన్ చెల్లింపు అవసరం*\n\nదయచేసి క్రింది లింక్ ఉపయోగించి *₹{price:.2f}* చెల్లింపును పూర్తి చేయండి:\n\n🔗 {pl_url}\n\n⏳ _గమనిక: క్యూఆర్ కోడ్ మరియు పేమెంట్ లింక్ రెండూ 20 నిమిషాల్లో ముగుస్తాయి._",
+        "online_qr_caption": "ఏదైనా యూపీఐ యాప్ (Google Pay, PhonePe, Paytm మొదలైనవి) ద్వారా స్కాన్ చేసి చెల్లించండి",
+        "failed_payment_gen": "⚠️ క్షమించండి, ఆన్‌లైన్ చెల్లింపు లింక్ సృష్టించడంలో సమస్య వచ్చింది. దయచేసి మళ్ళీ ప్రయత్నించండి లేదా క్యాష్ ఆన్ డెలివరీ ఎంచుకోండి.",
+        "name_prompt": "మీ పూర్తి పేరు ఏమిటి? 👤",
+        "phone_prompt": "మీ మొబైల్ నంబర్ ఏమిటి? 📞",
+        "address_prompt": "మీ చిరునామా ఏమిటి? 🏠",
+        "pincode_prompt": "మీ పిన్ కోడ్ ఏమిటి? 📮",
+        "cod_btn": "క్యాష్ ఆన్ డెలివరీ",
+        "online_btn": "ఆన్‌లైన్ చెల్లింపు",
+        "cancel_btn": "ರದ್ದು చేయి"
+    },
+    "kannada": {
+        "choose_lang": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಆದ್ಯತೆಯ ಭಾಷೆಯನ್ನು ಆರಿಸಿ:",
+        "payment_choice": "ನೀವು ಹೇಗೆ ಪಾವತಿಸಲು ಬಯಸುತ್ತೀರಿ? ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಆಯ್ಕೆಗಳಿಂದ ಆರಿಸಿ:",
+        "cancel_confirm": "ಪರವಾಗಿಲ್ಲ, ಆರ್ಡರ್ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ. ಯಾವುದೇ ಸಮಯದಲ್ಲಿ ನಮಗೆ ಸಂದೇಶ ಕಳುಹಿಸಿ!",
+        "cod_confirm": "ಧನ್ಯವಾದಗಳು {name}! ನಿಮ್ಮ ಕ್ಯಾಶ್ ಆನ್ ಡೆಲಿವರಿ ಆರ್ಡರ್ ಯಶಸ್ವಿಯಾಗಿದೆ.",
+        "online_link_msg": "💳 *ಆನ್‌ಲೈನ್ ಪಾವತಿ ಅಗತ್ಯವಿದೆ*\n\nದಯವಿಟ್ಟು ಕೆಳಗಿನ ಲಿಂಕ್ ಬಳಸಿ *₹{price:.2f}* ಪಾವತಿಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಿ:\n\n🔗 {pl_url}\n\n⏳ _ಗಮನಿಸಿ: ಕ್ಯೂಆರ್ ಕೋಡ್ ಮತ್ತು ಪಾವತಿ ಲಿಂಕ್ ಎರಡೂ 20 ನಿಮಿಷಗಳಲ್ಲಿ ಮುಕ್ತಾಯಗೊಳ್ಳುತ್ತವೆ._",
+        "online_qr_caption": "ಯಾವುದೇ ಯುಪಿಐ ಆಪ್ (Google Pay, PhonePe, Paytm ಇತ್ಯಾದಿ) ಬಳಸಿ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಪಾವತಿಸಿ",
+        "failed_payment_gen": "⚠️ ಕ್ಷಮಿಸಿ, ಪಾವತಿ ಲಿಂಕ್ ಜನರೇಟ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೊಮ್ಮೆ ಪ್ರಯತ್ನಿಸಿ ಅಥವಾ ಕ್ಯಾಶ್ ಆನ್ ಡೆಲಿವರಿ ಆರಿಸಿ.",
+        "name_prompt": "ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರು ಏನು? 👤",
+        "phone_prompt": "ನಿಮ್ಮ ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ಏನು? 📞",
+        "address_prompt": "ನಿಮ್ಮ ವಿಳಾಸ ಏನು? 🏠",
+        "pincode_prompt": "ನಿಮ್ಮ ಪಿನ್ ಕೋಡ್ ಏನು? 📮",
+        "cod_btn": "ಕ್ಯಾಶ್ ಆನ್ ಡೆಲಿವರಿ",
+        "online_btn": "ಆನ್‌ಲೈನ್ ಪಾವತಿ",
+        "cancel_btn": "ರದ್ದುಮಾಡು"
+    }
+}
+
+def translate_text(text, target_lang):
+    if not text:
+        return text
+    lang_map = {
+        "english": "en",
+        "hindi": "hi",
+        "malayalam": "ml",
+        "telugu": "te",
+        "kannada": "kn"
+    }
+    lang_code = lang_map.get(target_lang.lower(), "en")
+    if lang_code == "en":
+        return text
+    try:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": lang_code,
+            "dt": "t",
+            "q": text
+        }
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        res = r.json()
+        translated_sentences = []
+        for sentence in res[0]:
+            if sentence[0]:
+                translated_sentences.append(sentence[0])
+        return "".join(translated_sentences)
+    except Exception as e:
+        print(f"Translation failed: {e}", flush=True)
+        return text
+
+def translate_preserving_links(text, target_lang):
+    if not text or target_lang == "english":
+        return text
+    urls = re.findall(r'https?://[^\s]+', text)
+    temp_text = text
+    for i, url in enumerate(urls):
+        temp_text = temp_text.replace(url, f" [[URL_{i}]] ")
+    translated = translate_text(temp_text, target_lang)
+    for i, url in enumerate(urls):
+        translated = translated.replace(f"[[URL_{i}]]", url).replace(f"[[url_{i}]]", url)
+    return translated
+
+def send_official_wa_list(to_number, header, body, button_text, rows):
+    token = os.getenv("PAGE_ACCESS_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    clean_to = re.sub(r"\D", "", to_number)
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {
+                "text": body
+            },
+            "action": {
+                "button": button_text,
+                "sections": [
+                    {
+                        "rows": rows
+                    }
+                ]
+            }
+        }
+    }
+    if header:
+        payload["interactive"]["header"] = {
+            "type": "text",
+            "text": header
+        }
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    r.raise_for_status()
+
+def send_language_selection(to_number):
+    rows = [
+        {"id": "lang_english", "title": "English", "description": "English"},
+        {"id": "lang_hindi", "title": "हिन्दी", "description": "Hindi"},
+        {"id": "lang_malayalam", "title": "മലയാളം", "description": "Malayalam"},
+        {"id": "lang_telugu", "title": "തെലുങ്ക്", "description": "Telugu"},
+        {"id": "lang_kannada", "title": "ಕನ್ನಡ", "description": "Kannada"}
+    ]
+    try:
+        send_official_wa_list(
+            to_number=to_number,
+            header="Language / ഭാഷ",
+            body="Select your language to proceed:\nതുടരുന്നതിന് നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:",
+            button_text="Choose Language",
+            rows=rows
+        )
+    except Exception as e:
+        print(f"Failed to send WhatsApp interactive list: {e}. Falling back to text.", flush=True)
+        fallback_msg = (
+            "🌐 Please select your language / നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:\n\n"
+            "1. English\n"
+            "2. हिन्दी (Hindi)\n"
+            "3. മലയാളം (Malayalam)\n"
+            "4. తెలుగు (Telugu)\n"
+            "5. ಕನ್ನಡ (Kannada)\n\n"
+            "Please reply with the number (1-5) or name."
+        )
+        send_official_wa_message(to_number, text=fallback_msg)
+
+def send_payment_choice_message(to_number, language):
+    prompts = LOCALIZED_PROMPTS.get(language, LOCALIZED_PROMPTS["english"])
+    buttons = [
+        {"id": "pay_cod", "title": prompts["cod_btn"][:20]},
+        {"id": "pay_online", "title": prompts["online_btn"][:20]},
+        {"id": "pay_cancel", "title": prompts["cancel_btn"][:20]}
+    ]
+    body_text = prompts["payment_choice"]
+    try:
+        send_official_wa_interactive_buttons(to_number, body_text, buttons)
+    except Exception as e:
+        print(f"Failed to send interactive buttons: {e}. Falling back to text.", flush=True)
+        fallback_msg = (
+            f"{body_text}\n\n"
+            f"1. *{prompts['cod_btn']}*\n"
+            f"2. *{prompts['online_btn']}*\n"
+            f"3. *{prompts['cancel_btn']}*"
+        )
+        send_official_wa_message(to_number, text=fallback_msg)
 
 
 def send_official_wa_message(to_number, text=None, image_base64=None, voice_base64=None):
@@ -2243,7 +2463,11 @@ def handle_official_wa_message(msg, contact):
     elif msg_type == "button":
         text = msg.get("button", {}).get("payload", "").strip()
     elif msg_type == "interactive":
-        text = msg.get("interactive", {}).get("button_reply", {}).get("id", "").strip()
+        interactive_data = msg.get("interactive", {})
+        if interactive_data.get("type") == "button_reply":
+            text = interactive_data.get("button_reply", {}).get("id", "").strip()
+        elif interactive_data.get("type") == "list_reply":
+            text = interactive_data.get("list_reply", {}).get("id", "").strip()
         
     if not text:
         return
@@ -2258,13 +2482,75 @@ def handle_official_wa_message(msg, contact):
     if user_state and order_flow_config.get("enabled", True):
         # Handle escape hatch
         lower_input = text.lower().strip()
-        if lower_input in ["cancel", "restart", "order_cancel"]:
+        lang = user_state.get("language", "english")
+        prompts = LOCALIZED_PROMPTS.get(lang, LOCALIZED_PROMPTS["english"])
+        
+        is_cancel_kw = lower_input in ["cancel", "restart", "order_cancel", "pay_cancel"]
+        if is_cancel_kw:
             if sender_wa_id in conv_state:
                 del conv_state[sender_wa_id]
                 save_conv_state(conv_state)
-            send_official_wa_message(sender_wa_id, text="No problem, flow cancelled. Message us again anytime!")
+            send_official_wa_message(sender_wa_id, text=prompts.get("cancel_confirm"))
             return
             
+        # STEP: Awaiting Language Selection
+        if user_state.get("step") == "awaiting_language_selection":
+            selected_lang = None
+            if msg.get("type") == "interactive":
+                interactive_data = msg.get("interactive", {})
+                if interactive_data.get("type") == "list_reply":
+                    reply_id = interactive_data.get("list_reply", {}).get("id", "")
+                    if reply_id.startswith("lang_"):
+                        selected_lang = reply_id.replace("lang_", "")
+            else:
+                val = text.lower().strip()
+                if val in ["1", "english", "eng", "en"]:
+                    selected_lang = "english"
+                elif val in ["2", "hindi", "hin", "hi", "हिन्दी"]:
+                    selected_lang = "hindi"
+                elif val in ["3", "malayalam", "mal", "ml", "മലയാളം"]:
+                    selected_lang = "malayalam"
+                elif val in ["4", "telugu", "tel", "te", "తెలుగు"]:
+                    selected_lang = "telugu"
+                elif val in ["5", "kannada", "kan", "kn", "ಕನ್ನಡ"]:
+                    selected_lang = "kannada"
+                    
+            if not selected_lang:
+                send_language_selection(sender_wa_id)
+                return
+                
+            user_state["language"] = selected_lang
+            user_state["step"] = "awaiting_second_message"
+            user_state["updatedAt"] = int(time.time() * 1000)
+            conv_state[sender_wa_id] = user_state
+            save_conv_state(conv_state)
+            
+            # Send the main keyword product message (translated)
+            kw_pattern = user_state.get("matchedKeywordPattern")
+            try:
+                kw_path = os.getenv("KEYWORDS_PATH")
+                if not kw_path:
+                    for p in ["/data/keywords.json", "keywords.json", "../keywords.json"]:
+                        if os.path.exists(p):
+                            kw_path = p
+                            break
+                    if not kw_path:
+                        kw_path = os.path.join(BASE_DIR, "keywords.json")
+                with open(kw_path, "r", encoding="utf-8") as f:
+                    kw_map = json.load(f)
+                rule_data = kw_map.get(kw_pattern)
+                if isinstance(rule_data, dict):
+                    reply_text = rule_data.get("text", "")
+                else:
+                    reply_text = rule_data or ""
+            except:
+                reply_text = ""
+                
+            translated_product_text = translate_preserving_links(reply_text, selected_lang)
+            send_official_wa_message(sender_wa_id, text=translated_product_text)
+            return
+
+        # STEP: Awaiting Second Message (to show payment choice)
         if user_state.get("step") == "awaiting_second_message":
             user_state["step"] = "awaiting_payment_choice"
             user_state["updatedAt"] = int(time.time() * 1000)
@@ -2272,32 +2558,36 @@ def handle_official_wa_message(msg, contact):
             save_conv_state(conv_state)
             
             time.sleep(1.2)
-            choice_text = (
-                f"How would you like to pay?\n\n"
-                f"*1* - {order_flow_config.get('cod_label')}\n"
-                f"*2* - {order_flow_config.get('online_label')}\n"
-                f"*3* - Cancel\n\n"
-                f"Just reply with 1, 2 or 3."
-            )
-            buttons = [
-                {"id": "order_cod", "title": order_flow_config.get("cod_label")},
-                {"id": "order_online", "title": order_flow_config.get("online_label")},
-                {"id": "order_cancel", "title": "Cancel"}
-            ]
-            send_official_wa_interactive_buttons(sender_wa_id, choice_text, buttons)
+            send_payment_choice_message(sender_wa_id, user_state.get("language", "english"))
             return
 
+        # STEP: Awaiting Payment Choice
         if user_state.get("step") == "awaiting_payment_choice":
-            lower = text.lower().strip()
-            is_cod = lower in ["1", "cod", "order_cod"] or "cash" in lower
-            is_online = lower in ["2", "online", "order_online"] or "online" in lower
-            is_cancel = lower in ["3", "cancel", "order_cancel"]
+            is_cod = False
+            is_online = False
+            is_cancel = False
             
+            if msg.get("type") == "interactive":
+                interactive_data = msg.get("interactive", {})
+                if interactive_data.get("type") == "button_reply":
+                    reply_id = interactive_data.get("button_reply", {}).get("id", "")
+                    if reply_id in ["pay_cod", "order_cod"]:
+                        is_cod = True
+                    elif reply_id in ["pay_online", "order_online"]:
+                        is_online = True
+                    elif reply_id in ["pay_cancel", "order_cancel"]:
+                        is_cancel = True
+            else:
+                lower = text.lower().strip()
+                is_cod = lower in ["1", "cod"] or "cash" in lower or "delivery" in lower
+                is_online = lower in ["2", "online"] or "online" in lower
+                is_cancel = lower in ["3", "cancel"] or "cancel" in lower
+                
             if is_cancel:
                 if sender_wa_id in conv_state:
                     del conv_state[sender_wa_id]
                     save_conv_state(conv_state)
-                send_official_wa_message(sender_wa_id, text="No problem, flow cancelled. Message us again anytime!")
+                send_official_wa_message(sender_wa_id, text=prompts.get("cancel_confirm"))
                 return
                 
             if is_cod or is_online:
@@ -2307,16 +2597,40 @@ def handle_official_wa_message(msg, contact):
                 conv_state[sender_wa_id] = user_state
                 save_conv_state(conv_state)
                 
-                first_question = order_flow_config.get("questions", [])[0]
+                questions = order_flow_config.get("questions", [])
+                first_question = questions[0]
+                prompt = first_question.get("prompt")
+                lang = user_state.get("language", "english")
+                
+                translated_prompt = None
+                if lang in LOCALIZED_PROMPTS:
+                    q_key = first_question.get("key", "").lower()
+                    if "name" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("name_prompt")
+                    elif "phone" in q_key or "mobile" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("phone_prompt")
+                    elif "address" in q_key or "location" in q_key or "shipping" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("address_prompt")
+                    elif "pin" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("pincode_prompt")
+                        
+                if not translated_prompt:
+                    translated_prompt = translate_preserving_links(prompt, lang)
+                    
                 time.sleep(1.0)
-                send_official_wa_message(sender_wa_id, text=first_question.get("prompt"))
+                send_official_wa_message(sender_wa_id, text=translated_prompt)
             else:
-                send_official_wa_message(
-                    sender_wa_id, 
-                    text=f"Sorry, I didn't get that. Please reply with *1* for {order_flow_config.get('cod_label')}, *2* for {order_flow_config.get('online_label')}, or *3* to cancel."
+                choice_body = prompts.get("payment_choice")
+                fallback_msg = (
+                    f"{choice_body}\n\n"
+                    f"1. *{prompts['cod_btn']}*\n"
+                    f"2. *{prompts['online_btn']}*\n"
+                    f"3. *{prompts['cancel_btn']}*"
                 )
+                send_official_wa_message(sender_wa_id, text=fallback_msg)
             return
 
+        # STEP: Asking Checkout Questions
         if user_state.get("step", "").startswith("asking_question_"):
             try:
                 current_idx = int(user_state["step"].replace("asking_question_", ""))
@@ -2334,13 +2648,33 @@ def handle_official_wa_message(msg, contact):
                 conv_state[sender_wa_id] = user_state
                 save_conv_state(conv_state)
                 
+                next_q = questions[next_idx]
+                prompt = next_q.get("prompt")
+                lang = user_state.get("language", "english")
+                
+                translated_prompt = None
+                if lang in LOCALIZED_PROMPTS:
+                    q_key = next_q.get("key", "").lower()
+                    if "name" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("name_prompt")
+                    elif "phone" in q_key or "mobile" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("phone_prompt")
+                    elif "address" in q_key or "location" in q_key or "shipping" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("address_prompt")
+                    elif "pin" in q_key:
+                        translated_prompt = LOCALIZED_PROMPTS[lang].get("pincode_prompt")
+                        
+                if not translated_prompt:
+                    translated_prompt = translate_preserving_links(prompt, lang)
+                    
                 time.sleep(0.8)
-                send_official_wa_message(sender_wa_id, text=questions[next_idx].get("prompt"))
+                send_official_wa_message(sender_wa_id, text=translated_prompt)
             else:
                 payment_method = user_state.get("paymentMethod")
+                lang = user_state.get("language", "english")
+                prompts = LOCALIZED_PROMPTS.get(lang, LOCALIZED_PROMPTS["english"])
                 
                 if payment_method == "online":
-                    # Extract price from matched keyword trigger
                     price = None
                     kw_pattern = user_state.get("matchedKeywordPattern")
                     if kw_pattern:
@@ -2368,7 +2702,7 @@ def handle_official_wa_message(msg, contact):
                             print(f"Error loading price for online payment: {e}", flush=True)
                     
                     if not price:
-                        price = 7999.0  # Safe fallback to standard printer price
+                        price = 7999.0
 
                     price_in_paise = int(price * 100)
                     reference_id = f"ref_{int(time.time())}_{sender_wa_id.split('@')[0]}"
@@ -2376,7 +2710,6 @@ def handle_official_wa_message(msg, contact):
                     expires_at = int(time.time()) + (expiry_minutes * 60)
                     
                     try:
-                        # Call Razorpay QR API and Payment Link API
                         qr_data = create_razorpay_qr(price_in_paise, reference_id, sender_wa_id, expires_at)
                         pl_data = create_razorpay_payment_link(price_in_paise, reference_id, sender_wa_id, expires_at)
                         
@@ -2385,7 +2718,6 @@ def handle_official_wa_message(msg, contact):
                         pl_id = pl_data.get("id")
                         pl_url = pl_data.get("short_url")
                         
-                        # Store pending payment info
                         payments = load_payments()
                         payments.append({
                             "qr_id": qr_id,
@@ -2396,28 +2728,22 @@ def handle_official_wa_message(msg, contact):
                             "expires_at": expires_at,
                             "status": "pending",
                             "answers": user_state.get("answers"),
-                            "sender_name": sender_name
+                            "sender_name": sender_name,
+                            "matchedKeywordPattern": kw_pattern,
+                            "language": lang
                         })
                         save_payments(payments)
                         
-                        # Send QR scan-to-pay image
                         send_official_wa_image_url(
                             to_number=sender_wa_id,
                             image_url=qr_url,
-                            caption="Scan to Pay using any UPI app (Google Pay, PhonePe, Paytm, etc.)"
+                            caption=prompts.get("online_qr_caption")
                         )
                         time.sleep(1.0)
                         
-                        # Send fallback payment link text
-                        link_message = (
-                            f"💳 *Online Payment Required*\n\n"
-                            f"Please complete your payment of *₹{price:.2f}* using the link below:\n\n"
-                            f"🔗 {pl_url}\n\n"
-                            f"⏳ _Note: Both the QR code and payment link will expire in 20 minutes._"
-                        )
+                        link_message = prompts.get("online_link_msg").format(price=price, pl_url=pl_url)
                         send_official_wa_message(sender_wa_id, text=link_message)
                         
-                        # Send notification to owner 916282444918
                         try:
                             answers_text = "\n".join([f"*{k}*: {v}" for k, v in user_state.get("answers", {}).items()])
                             owner_notification = (
@@ -2431,7 +2757,6 @@ def handle_official_wa_message(msg, contact):
                         except:
                             pass
                             
-                        # Clean up conv state
                         if sender_wa_id in conv_state:
                             del conv_state[sender_wa_id]
                             save_conv_state(conv_state)
@@ -2448,12 +2773,11 @@ def handle_official_wa_message(msg, contact):
                             print(f"Failed to write error log: {log_err}", flush=True)
                         send_official_wa_message(
                             sender_wa_id,
-                            text="⚠️ Sorry, we had trouble generating your online payment link. Please try again or select Cash on Delivery."
+                            text=prompts.get("failed_payment_gen")
                         )
                 else:
                     # Cash on Delivery Flow
-                    template = order_flow_config.get("cod_confirmation_template")
-                    final_text = template if template else "Thanks {name}! Your Cash on Delivery order is confirmed."
+                    final_text = prompts.get("cod_confirm", "Thanks {name}! Your Cash on Delivery order is confirmed.")
                     for key, val in user_state.get("answers", {}).items():
                         final_text = final_text.replace(f"{{{key}}}", val)
                         
@@ -2461,13 +2785,11 @@ def handle_official_wa_message(msg, contact):
                     send_official_wa_message(sender_wa_id, text=final_text)
                     print(f"Order flow completed for {sender_name} (COD).", flush=True)
 
-                    # Trigger Shopify order creation automatically for COD orders
                     try:
                         create_shopify_order_python(user_state, sender_wa_id, sender_name)
                     except Exception as shop_err:
                         print(f"[Shopify Error] COD auto-creation failed: {shop_err}", flush=True)
 
-                    # Send order notification to owner 916282444918
                     try:
                         answers_text = "\n".join([f"*{k}*: {v}" for k, v in user_state.get("answers", {}).items()])
                         owner_notification = (
@@ -2499,7 +2821,7 @@ def handle_official_wa_message(msg, contact):
                         save_conv_state(conv_state)
             return
     
-    # Load keywords
+        # Load keywords
     kw_path = os.getenv("KEYWORDS_PATH")
     if not kw_path:
         for p in ["/data/keywords.json", "keywords.json", "../keywords.json"]:
@@ -2555,25 +2877,27 @@ def handle_official_wa_message(msg, contact):
                 use_order_flow = False
                 
             try:
-                send_official_wa_message(
-                    to_number=sender_wa_id,
-                    text=reply_text,
-                    image_base64=reply_image,
-                    voice_base64=reply_voice
-                )
-                print(f"[Official WhatsApp Sent] To: {sender_wa_id}", flush=True)
-                
                 if use_order_flow and order_flow_config.get("enabled", True):
                     conv_state = load_conv_state()
                     conv_state[sender_wa_id] = {
-                        "step": "awaiting_second_message",
+                        "step": "awaiting_language_selection",
                         "matchedKeywordPattern": kw_pattern,
                         "paymentMethod": None,
                         "answers": {},
+                        "language": "english",
                         "updatedAt": int(time.time() * 1000)
                     }
                     save_conv_state(conv_state)
-                    print(f"Initialized order flow in awaiting_second_message state for {sender_name}.", flush=True)
+                    print(f"Initialized order flow in awaiting_language_selection state for {sender_name}.", flush=True)
+                    send_language_selection(sender_wa_id)
+                else:
+                    send_official_wa_message(
+                        to_number=sender_wa_id,
+                        text=reply_text,
+                        image_base64=reply_image,
+                        voice_base64=reply_voice
+                    )
+                    print(f"[Official WhatsApp Sent] To: {sender_wa_id}", flush=True)
                     
             except Exception as err:
                 print(f"Failed to send official WhatsApp reply: {err}", flush=True)
@@ -6732,7 +7056,8 @@ def razorpay_webhook():
         user_state = {
             "answers": matched_payment.get("answers", {}),
             "paymentMethod": "online",
-            "matchedKeywordPattern": matched_payment.get("matchedKeywordPattern")
+            "matchedKeywordPattern": matched_payment.get("matchedKeywordPattern"),
+            "language": matched_payment.get("language", "english")
         }
         create_shopify_order_python(user_state, phone, sender_name)
     except Exception as e:
