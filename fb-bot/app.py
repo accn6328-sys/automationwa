@@ -1904,7 +1904,7 @@ def handle_official_wa_message(msg, contact):
     if user_state and order_flow_config.get("enabled", True):
         # Handle escape hatch
         lower_input = text.lower().strip()
-        if lower_input in ["cancel", "restart"]:
+        if lower_input in ["cancel", "restart", "order_cancel"]:
             if sender_wa_id in conv_state:
                 del conv_state[sender_wa_id]
                 save_conv_state(conv_state)
@@ -1921,12 +1921,14 @@ def handle_official_wa_message(msg, contact):
             choice_text = (
                 f"How would you like to pay?\n\n"
                 f"*1* - {order_flow_config.get('cod_label')}\n"
-                f"*2* - {order_flow_config.get('online_label')}\n\n"
-                f"Just reply with 1 or 2."
+                f"*2* - {order_flow_config.get('online_label')}\n"
+                f"*3* - Cancel\n\n"
+                f"Just reply with 1, 2 or 3."
             )
             buttons = [
                 {"id": "order_cod", "title": order_flow_config.get("cod_label")},
-                {"id": "order_online", "title": order_flow_config.get("online_label")}
+                {"id": "order_online", "title": order_flow_config.get("online_label")},
+                {"id": "order_cancel", "title": "Cancel"}
             ]
             send_official_wa_interactive_buttons(sender_wa_id, choice_text, buttons)
             return
@@ -1935,7 +1937,15 @@ def handle_official_wa_message(msg, contact):
             lower = text.lower().strip()
             is_cod = lower in ["1", "cod", "order_cod"] or "cash" in lower
             is_online = lower in ["2", "online", "order_online"] or "online" in lower
+            is_cancel = lower in ["3", "cancel", "order_cancel"]
             
+            if is_cancel:
+                if sender_wa_id in conv_state:
+                    del conv_state[sender_wa_id]
+                    save_conv_state(conv_state)
+                send_official_wa_message(sender_wa_id, text="No problem, flow cancelled. Message us again anytime!")
+                return
+                
             if is_cod or is_online:
                 user_state["paymentMethod"] = "cod" if is_cod else "online"
                 user_state["step"] = "asking_question_0"
@@ -1949,7 +1959,7 @@ def handle_official_wa_message(msg, contact):
             else:
                 send_official_wa_message(
                     sender_wa_id, 
-                    text=f"Sorry, I didn't get that. Please reply with *1* for {order_flow_config.get('cod_label')} or *2* for {order_flow_config.get('online_label')}."
+                    text=f"Sorry, I didn't get that. Please reply with *1* for {order_flow_config.get('cod_label')}, *2* for {order_flow_config.get('online_label')}, or *3* to cancel."
                 )
             return
 
