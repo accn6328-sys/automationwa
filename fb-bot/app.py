@@ -39,14 +39,19 @@ WEBHOOK_VERIFY_TOKEN   = os.getenv("WEBHOOK_VERIFY_TOKEN") or os.getenv("VERIFY_
 PAGE_ID                = os.getenv("PAGE_ID")
 GRAPH_API_VERSION      = os.getenv("GRAPH_API_VERSION", "v19.0")
 
-# Strict startup validation check (fails loudly if any required var is missing)
+# Soft startup validation — warn but do NOT crash if credentials are missing.
+# The bot will start in "unconfigured" mode; endpoints return a helpful status message.
 missing_vars = []
 if not IG_ACCESS_TOKEN: missing_vars.append("IG_ACCESS_TOKEN / PAGE_ACCESS_TOKEN")
 if not WEBHOOK_VERIFY_TOKEN: missing_vars.append("WEBHOOK_VERIFY_TOKEN / VERIFY_TOKEN")
 if not PAGE_ID: missing_vars.append("PAGE_ID")
 
+BOT_CONFIGURED = len(missing_vars) == 0
+
 if missing_vars:
-    raise RuntimeError(f"Startup failed: Missing required environment variables: {', '.join(missing_vars)}")
+    print(f"[Warning] FB/Instagram bot starting in UNCONFIGURED mode. "
+          f"Missing env vars: {', '.join(missing_vars)}. "
+          f"Set these in Railway Variables to enable full functionality.")
 
 if not IG_BUSINESS_ACCOUNT_ID:
     print("[Warning] IG_BUSINESS_ACCOUNT_ID / IG_USER_ID is not configured in .env. Will attempt auto-discovery.")
