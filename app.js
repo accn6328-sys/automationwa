@@ -908,6 +908,14 @@ function startReposterDaemon() {
         reposterProcess = null;
         setTimeout(startReposterDaemon, 10000);
     });
+    
+    repProc.on('error', err => {
+        addLog(`❌ [Reposter Bot] Spawn error: ${err.message}`);
+    });
+    
+    reposterProcess = repProc;
+}
+
   async function getShopifyProducts() {
     const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
     let storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
