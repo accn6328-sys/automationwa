@@ -77,6 +77,14 @@ if not persistent_dir and os.path.exists("/data"):
     persistent_dir = "/data"
 
 def get_flow_path(filename):
+    # Check environment variables first to align with Node.js
+    env_key = filename.replace(".json", "").upper() + "_PATH"
+    if filename == "conversation_state.json":
+        env_key = "CONV_STATE_PATH"
+    env_val = os.getenv(env_key)
+    if env_val:
+        return env_val
+
     if persistent_dir:
         return os.path.join(persistent_dir, filename)
     # Match the fallback behavior in Node.js app.js
