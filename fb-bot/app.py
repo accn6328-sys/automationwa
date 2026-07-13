@@ -2247,15 +2247,27 @@ def translate_text(text, target_lang):
         return text
 
 def translate_preserving_links(text, target_lang):
-    if not text or target_lang == "english":
+    if not text:
         return text
+    # Extract links
     urls = re.findall(r'https?://[^\s]+', text)
     temp_text = text
     for i, url in enumerate(urls):
         temp_text = temp_text.replace(url, f" [[URL_{i}]] ")
+    
+    # Translate (even if target_lang is english, because source keywords are written in Malayalam)
     translated = translate_text(temp_text, target_lang)
+    
+    # Restore links using a flexible regex that matches brackets containing any word/characters and the index number
+    # E.g. matches [[URL_0]], [[url_0]], [[यूআরएल_0]], [[URL_ 0]], [[ url_ 0 ]], etc.
     for i, url in enumerate(urls):
-        translated = translated.replace(f"[[URL_{i}]]", url).replace(f"[[url_{i}]]", url)
+        # Match pattern: open brackets, optional spaces, any characters (like URL/यूআরएल), underscore, optional spaces, index i, optional spaces, close brackets
+        pattern = rf"\[\s*\[\s*[^\d\]]*_\s*{i}\s*\]\s*\]"
+        translated = re.sub(pattern, url, translated, flags=re.IGNORECASE)
+        # Fallback in case translation engine removed the underscore (e.g. [[URL 0]] or [[यूআরएल 0]])
+        pattern_fallback = rf"\[\s*\[\s*[^\d\]]*\s+{i}\s*\]\s*\]"
+        translated = re.sub(pattern_fallback, url, translated, flags=re.IGNORECASE)
+        
     return translated
 
 def send_official_wa_list(to_number, header, body, button_text, rows):
