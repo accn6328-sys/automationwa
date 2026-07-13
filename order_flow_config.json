@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "payment_link": "https://test-payment-link.com",
+  "cod_label": "Cash on Delivery",
+  "online_label": "Online Payment",
+  "questions": [
+    {
+      "key": "name",
+      "prompt": "What is your full name? 👤"
+    },
+    {
+      "key": "phone",
+      "prompt": "What is your mobile number? 📞"
+    },
+    {
+      "key": "address",
+      "prompt": "What is your shipping address? 🏠"
+    },
+    {
+      "key": "pincode",
+      "prompt": "What is your Pin code? 📮"
+    }
+  ],
+  "cod_confirmation_template": "Thanks {name}! Your Cash on Delivery order is confirmed. Address: {address}, Pincode: {pincode}, Phone: {phone}.",
+  "online_confirmation_template": "Thanks {name}! Complete payment here: {payment_link}."
+}

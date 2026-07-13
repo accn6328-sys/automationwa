@@ -1929,7 +1929,12 @@ def extract_field_python(answers, keys):
 def create_shopify_order_python(user_state, sender_wa_id, sender_name):
     answers = user_state.get("answers", {})
     name = extract_field_python(answers, ['name', 'customer', 'full name', 'buyer']) or sender_name or 'WhatsApp Customer'
+    
+    # Fallback to the sender's actual WhatsApp phone ID if phone answer is missing
     phone = extract_field_python(answers, ['phone', 'mobile', 'contact', 'number'])
+    if not phone and sender_wa_id:
+        phone = sender_wa_id.split("@")[0]
+        
     address = extract_field_python(answers, ['address', 'shipping', 'location', 'delivery'])
     variant_id = extract_field_python(answers, ['variant', 'product', 'id', 'item_id', 'variant_id'])
     quantity_str = extract_field_python(answers, ['quantity', 'qty', 'count', 'number of items']) or '1'
@@ -2123,6 +2128,71 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
             )
         except:
             pass
+
+
+def get_payment_instruction_text(lang, price, pl_url):
+    lang_lower = lang.lower().strip() if lang else "english"
+    if lang_lower == "hindi":
+        return (
+            f"💳 *ऑनलाइन भुगतान (Online Payment)* 💳\n\n"
+            f"कुल राशि (Total): *₹{price:.2f}*\n\n"
+            f"कृपया नीचे दिए गए किसी भी विकल्प का उपयोग करके भुगतान पूरा करें:\n"
+            f"1. 📲 ऊपर दिए गए *QR कोड को स्कैन करें* किसी भी UPI ऐप (Google Pay, PhonePe, Paytm, BHIM आदि) से।\n"
+            f"2. 🔗 या नीचे दिए गए *लिंक पर क्लिक करें* (कार्ड, नेटबैंकिंग या UPI के लिए):\n"
+            f"{pl_url}\n\n"
+            f"⏳ _नोट: यह QR कोड और लिंक केवल 20 मिनट के लिए मान्य हैं।_"
+        )
+    elif lang_lower == "malayalam":
+        return (
+            f"💳 *ഓൺലൈൻ പേയ്മെന്റ് (Online Payment)* 💳\n\n"
+            f"ആകെ തുക (Total): *₹{price:.2f}*\n\n"
+            f"ദയവായി താഴെ പറയുന്ന ഏതെങ്കിലും ഒരു മാർഗ്ഗം ഉപയോഗിച്ച് പണമടയ്ക്കുക:\n"
+            f"1. 📲 മുകളിലുള്ള *QR കോഡ് സ്കാൻ ചെയ്യുക* (Google Pay, PhonePe, Paytm തുടങ്ങിയ ഏതെങ്കിലും UPI ആപ്പ് ഉപയോഗിച്ച്).\n"
+            f"2. 🔗 അല്ലെങ്കിൽ താഴെ കാണുന്ന *ലിങ്ക് ക്ലിക്ക് ചെയ്യുക*:\n"
+            f"{pl_url}\n\n"
+            f"⏳ _ശ്രദ്ധിക്കുക: ഈ QR കോഡും ലിങ്കും 20 മിനിറ്റ് മാത്രമേ ലഭ്യമായിരിക്കുകയുള്ളൂ._"
+        )
+    elif lang_lower == "tamil":
+        return (
+            f"💳 *ஆன்லைன் கட்டணம் (Online Payment)* 💳\n\n"
+            f"மொத்த தொகை (Total): *₹{price:.2f}*\n\n"
+            f"கீழே உள்ள ஏதேனும் ஒரு வழியைப் பயன்படுத்தி உங்கள் கட்டணத்தைச் செலுத்தவும்:\n"
+            f"1. 📲 மேலே உள்ள *QR குறியீட்டை ஸ்கேன் செய்யவும்* (Google Pay, PhonePe, Paytm போன்ற ஏதேனும் ஒரு UPI செயலியைப் பயன்படுத்தி).\n"
+            f"2. 🔗 அல்லது கீழே உள்ள *லிங்கைக் கிளிக் செய்யவும்*:\n"
+            f"{pl_url}\n\n"
+            f"⏳ _குறிப்பு: யூபிஐ கியூஆர் குறியீடு மற்றும் கட்டண இணைப்பு இரண்டும் 20 நிமிடங்களில் காலாவதியாகிவிடும்._"
+        )
+    elif lang_lower == "telugu":
+        return (
+            f"💳 *ఆన్‌లైన్ చెల్లింపు (Online Payment)* 💳\n\n"
+            f"మొత్తం ధర (Total): *₹{price:.2f}*\n\n"
+            f"దయచేసి క్రింది ఎంపికలలో దేనినైనా ఉపయోగించి మీ చెల్లింపును పూర్తి చేయండి:\n"
+            f"1. 📲 పైన ఉన్న *QR కోడ్‌ను స్కాన్ చేయండి* (Google Pay, PhonePe, Paytm వంటి ఏదైనా UPI యాప్ ద్వారా).\n"
+            f"2. 🔗 లేదా క్రింది *లింక్‌ను క్ಲಿక్ చేయండి*:\n"
+            f"{pl_url}\n\n"
+            f"⏳ _గమనిక: క్యూఆర్ కోడ్ మరియు పేమెంట్ లింక్ రెండూ 20 నిమిషాల్లో ముగుస్తాయి._"
+        )
+    elif lang_lower == "kannada":
+        return (
+            f"💳 *ಆನ್‌ಲೈನ್ ಪಾವತಿ (Online Payment)* 💳\n\n"
+            f"ಒಟ್ಟು ಮೊತ್ತ (Total): *₹{price:.2f}*\n\n"
+            f"ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಯಾವುದಾದರೊಂದು ಆಯ್ಕೆಯನ್ನು ಬಳಸಿ ಪಾವತಿಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಿ:\n"
+            f"1. 📲 ಮೇಲಿರುವ *QR ಕೋಡ್ ಅನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ* (Google Pay, PhonePe, Paytm ನಂತಹ ಯಾವುದೇ UPI ಆಪ್ ಬಳಸಿ).\n"
+            f"2. 🔗 ಅಥವಾ ಕೆಳಗಿನ *ಲಿಂಕ್ ಅನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ*:\n"
+            f"{pl_url}\n\n"
+            f"⏳ _ಗಮನಿಸಿ: ಕ್ಯೂಆರ್ ಕೋಡ್ ಮತ್ತು ಪಾವತಿ ಲಿಂಕ್ ಎರಡೂ 20 ನಿಮಿಷಗಳಲ್ಲಿ ಮುಕ್ತಾಯಗೊಳ್ಳುತ್ತವೆ._"
+        )
+    else:
+        # English fallback
+        return (
+            f"💳 *Online Payment Request* 💳\n\n"
+            f"Total Amount: *₹{price:.2f}*\n\n"
+            f"Please complete your payment using any of the options below:\n"
+            f"1. 📲 *Scan the QR Code* above with any UPI app (Google Pay, PhonePe, Paytm, BHIM, etc.).\n"
+            f"2. 🔗 Or *Click this Payment Link* to pay via UPI, Card, or NetBanking:\n"
+            f"{pl_url}\n\n"
+            f"⏳ _Note: Both the QR code and payment link will expire in 20 minutes._"
+        )
 
 
 LOCALIZED_PROMPTS = {
@@ -2546,28 +2616,48 @@ def get_shopify_products_python():
     return []
 
 
+def find_matching_shopify_products(text, products):
+    if not text or not products:
+        return []
+    # Extract alpha-numeric words of length >= 3
+    words = [w.lower().strip() for w in re.split(r'\W+', text) if len(w.strip()) >= 3]
+    stop_words = {"for", "the", "and", "with", "from", "into", "your", "mens", "womens", "all", "get", "dry", "wet"}
+    query_words = [w for w in words if w not in stop_words]
+    if not query_words:
+        return []
+        
+    matched = []
+    for p in products:
+        title = p.get("title", "")
+        title_lower = title.lower()
+        
+        matches = False
+        if text.lower().strip() in title_lower:
+            matches = True
+        else:
+            for qw in query_words:
+                if qw in title_lower:
+                    matches = True
+                    break
+        if matches:
+            variants = p.get("variants") or []
+            if variants:
+                matched.append({
+                    "title": title,
+                    "variant_id": variants[0].get("id"),
+                    "price": variants[0].get("price"),
+                    "handle": p.get("handle", "")
+                })
+    return matched
+
+
 def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     print(f"[AIFallback] Triggering WhatsApp AI Fallback for {sender_name} ({sender_wa_id})...", flush=True)
     
-    # 1. Load active conversation state
-    conv_state = load_conv_state()
-    user_state = conv_state.get(sender_wa_id)
-    if not user_state:
-        user_state = {
-            "step": "ai_chat",
-            "answers": {},
-            "paymentMethod": None,
-            "matchedKeywordPattern": None,
-            "updatedAt": int(time.time() * 1000)
-        }
-    
-    current_answers = json.dumps(user_state.get("answers", {}), indent=2, ensure_ascii=False)
-    
-    # 2. Build a COMPACT product context to avoid token overflow
+    # 1. Build a COMPACT product context to avoid token overflow
     context = ""
 
     # Load Shopify products from Admin API
-    shopify_products = []
     try:
         shopify_products = get_shopify_products_python()
         if shopify_products and len(shopify_products) > 0:
@@ -2583,56 +2673,22 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     except Exception as e:
         print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
 
-    # Load Instagram automations
-    try:
-        conn = get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, link_url, active FROM ig_automations")
-        autos = cursor.fetchall()
-        if autos:
-            active_promos = [a for a in autos if a["active"]]
-            if active_promos:
-                context += "Instagram Promotions:\n"
-                for auto in active_promos:
-                    context += f"- {auto['name']}"
-                    if auto["link_url"]:
-                        context += f" | Link: {auto['link_url']}"
-                    context += "\n"
-                context += "\n"
-        conn.close()
-    except Exception as e:
-        print(f"[AIFallback] Error querying db for automations: {e}", flush=True)
-
     prompt = f"""
 You are a helpful customer support agent for our online store.
-Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below. You also help them place orders by collecting their checkout details.
+Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
 
 Customer Details:
 Name: {sender_name}
 Message: "{text}"
-Current Checkout Answers collected so far:
-{current_answers}
 
 Our Product Catalog & Promotions:
 {context}
 
-Your response MUST be a valid JSON object containing exactly three keys:
-1. "reply": A string containing your friendly response to the customer in their language. Do not include any greeting pleasantries or chitchat unless responding to a greeting. Ask politely for any missing ordering details.
-2. "extracted_info": A JSON object containing any new or updated details extracted from the customer's current message:
-   - "name": Customer full name (string or null)
-   - "phone": Customer mobile phone number (string or null)
-   - "address": Customer complete delivery shipping address (string or null)
-   - "pincode": Delivery area pincode (string or null)
-   - "product_title": The exact title of the product they want to order from the catalog list (string or null)
-   - "payment_method": "cod" or "online" (string or null)
-3. "ready_to_order": A boolean (true or false). Set this to true ONLY if you have successfully collected all of: name, phone, address, pincode, product_title, and payment_method.
-
 Instructions:
 1. Identify the customer's language and reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
 2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
-3. If they ask about a product, give them the matching catalog details (price, description) and link.
-4. If they say they want to order, check what details are missing (e.g. name, address, payment method) and politely ask for those details in your "reply".
-5. Do NOT answer anything unrelated to our products or ordering.
+3. If they ask about a product, explain details, description, or how it works using the catalog details.
+4. Do NOT answer topics unrelated to products. Politely decline if asked about anything else.
 """
 
     ai_msg = None
@@ -2682,144 +2738,15 @@ Instructions:
             except Exception as e:
                 print(f"[AIFallback] Gemini failed: {e}", flush=True)
 
-    if not ai_msg:
+    if ai_msg:
+        send_official_wa_message(sender_wa_id, text=ai_msg)
+    else:
         # Hard fallback
         try:
-            fallback_msg = "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer."
+            fallback_msg = "Thanks for messaging us! Our support team will get back to you shortly."
             send_official_wa_message(sender_wa_id, text=fallback_msg)
         except Exception as e:
             print(f"[AIFallback] Failed to send fallback message: {e}", flush=True)
-        return
-
-    # Parse AI response
-    reply_text = ai_msg
-    extracted = {}
-    ready = False
-
-    try:
-        clean_res = ai_msg.strip()
-        if clean_res.startswith("```"):
-            lines = clean_res.split("\n")
-            if len(lines) > 2:
-                if "json" in lines[0].lower() or lines[0].strip() == "```":
-                    lines = lines[1:-1]
-                else:
-                    lines = lines[1:]
-            clean_res = "\n".join(lines).strip()
-        
-        res_data = json.loads(clean_res)
-        reply_text = res_data.get("reply", "")
-        extracted = res_data.get("extracted_info") or {}
-        ready = res_data.get("ready_to_order", False)
-    except Exception as parse_err:
-        print(f"[AIFallback] JSON parse error: {parse_err}. Response was: {ai_msg}", flush=True)
-
-    # Update state fields with newly extracted info
-    updated_answers = user_state.get("answers", {})
-    for k, v in extracted.items():
-        if v:
-            updated_answers[k] = str(v)
-            if k == "payment_method":
-                user_state["paymentMethod"] = str(v).lower()
-    
-    user_state["answers"] = updated_answers
-    user_state["updatedAt"] = int(time.time() * 1000)
-
-    # Place order if ready
-    if ready:
-        prod_title = updated_answers.get("product_title")
-        resolved = None
-        if prod_title and shopify_products:
-            prod_title_lower = prod_title.lower().strip()
-            for p in shopify_products:
-                if prod_title_lower in p.get("title", "").lower() or p.get("title", "").lower() in prod_title_lower:
-                    variants = p.get("variants") or []
-                    if variants:
-                        resolved = {
-                            "variant_id": variants[0].get("id"),
-                            "price": variants[0].get("price"),
-                            "title": p.get("title")
-                        }
-                        break
-        
-        if resolved:
-            user_state["answers"]["variant_id"] = str(resolved["variant_id"])
-            user_state["answers"]["price"] = str(resolved["price"])
-            user_state["answers"]["product"] = resolved["title"]
-            user_state["matchedKeywordPattern"] = "ai_chat"
-            
-            pay_method = user_state.get("paymentMethod") or "cod"
-            
-            if pay_method == "online":
-                try:
-                    price = float(resolved["price"])
-                    price_in_paise = int(price * 100)
-                    reference_id = f"ref_{int(time.time())}_{sender_wa_id.split('@')[0]}"
-                    expiry_minutes = 20
-                    expires_at = int(time.time()) + (expiry_minutes * 60)
-                    
-                    qr_data = create_razorpay_qr(price_in_paise, reference_id, sender_wa_id, expires_at)
-                    pl_data = create_razorpay_payment_link(price_in_paise, reference_id, sender_wa_id, expires_at)
-                    
-                    qr_url = qr_data.get("image_url")
-                    pl_url = pl_data.get("short_url")
-                    
-                    # Store payment details
-                    payments = load_payments()
-                    payments.append({
-                        "qr_id": qr_data.get("id"),
-                        "payment_link_id": pl_data.get("id"),
-                        "reference_id": reference_id,
-                        "phone": sender_wa_id,
-                        "amount": price,
-                        "expires_at": expires_at,
-                        "status": "pending",
-                        "answers": user_state.get("answers"),
-                        "sender_name": sender_name,
-                        "matchedKeywordPattern": "ai_chat",
-                        "language": "english"
-                    })
-                    save_payments(payments)
-                    
-                    send_official_wa_message(sender_wa_id, text=reply_text)
-                    time.sleep(1.0)
-                    
-                    # Send Payment Links
-                    send_official_wa_image_url(
-                        to_number=sender_wa_id,
-                        image_url=qr_url,
-                        caption="ഇടപാട് പൂർത്തിയാക്കാൻ ഈ QR കോഡ് സ്കാൻ ചെയ്യുക (Scan this QR code to pay):"
-                    )
-                    time.sleep(1.0)
-                    send_official_wa_message(sender_wa_id, text=f"അല്ലെങ്കിൽ താഴെ കാണുന്ന ലിങ്ക് ക്ലിക്ക് ചെയ്യുക (Or click here to pay): {pl_url}")
-                    
-                    if sender_wa_id in conv_state:
-                        del conv_state[sender_wa_id]
-                        save_conv_state(conv_state)
-                    return
-                except Exception as rz_err:
-                    print(f"[Razorpay AI Error] {rz_err}", flush=True)
-                    send_official_wa_message(sender_wa_id, text="Sorry, we failed to generate the online payment link. Placing your order as Cash on Delivery instead.")
-                    pay_method = "cod"
-            
-            if pay_method == "cod":
-                send_official_wa_message(sender_wa_id, text=reply_text)
-                time.sleep(1.0)
-                try:
-                    create_shopify_order_python(user_state, sender_wa_id, sender_name)
-                except Exception as shop_err:
-                    print(f"[Shopify Error] COD AI checkout failed: {shop_err}", flush=True)
-                if sender_wa_id in conv_state:
-                    del conv_state[sender_wa_id]
-                    save_conv_state(conv_state)
-                return
-        else:
-            send_official_wa_message(sender_wa_id, text="I couldn't match the product you mentioned to our catalog. Could you please specify which product from our catalog you want to order?")
-            return
-    else:
-        conv_state[sender_wa_id] = user_state
-        save_conv_state(conv_state)
-        send_official_wa_message(sender_wa_id, text=reply_text)
 
 
 def dummy_end_helper_marker():
@@ -2848,6 +2775,52 @@ def handle_official_wa_message(msg, contact):
         
     if not text:
         return
+        
+    # Intercept product selections from interactive buttons
+    if text.startswith("order_variant_"):
+        variant_id = text.replace("order_variant_", "")
+        products = get_shopify_products_python()
+        matched_p = None
+        for p in products:
+            variants = p.get("variants") or []
+            if variants and str(variants[0].get("id")) == variant_id:
+                matched_p = p
+                break
+        if matched_p:
+            title = matched_p.get("title")
+            price = matched_p.get("variants")[0].get("price")
+            
+            conv_state = load_conv_state()
+            conv_state[sender_wa_id] = {
+                "step": "awaiting_language_selection",
+                "matchedKeywordPattern": "custom_variant_" + variant_id,
+                "answers": {
+                    "product_title": title,
+                    "variant_id": str(variant_id),
+                    "variant": str(variant_id),
+                    "price": str(price),
+                    "product": title
+                },
+                "updatedAt": int(time.time() * 1000)
+            }
+            save_conv_state(conv_state)
+            send_language_selection(sender_wa_id)
+            return
+
+    elif text.startswith("ask_variant_"):
+        variant_id = text.replace("ask_variant_", "")
+        products = get_shopify_products_python()
+        matched_p = None
+        for p in products:
+            variants = p.get("variants") or []
+            if variants and str(variants[0].get("id")) == variant_id:
+                matched_p = p
+                break
+        if matched_p:
+            title = matched_p.get("title")
+            prompt_text = f"Explain what the product '{title}' is and answer any questions about it."
+            handle_wa_ai_fallback(sender_wa_id, prompt_text, sender_name)
+            return
         
     print(f"[Official WhatsApp Message] from={sender_name} ({sender_wa_id}) text={text}", flush=True)
     
@@ -3142,15 +3115,12 @@ def handle_official_wa_message(msg, contact):
                         })
                         save_payments(payments)
                         
+                        caption_text = get_payment_instruction_text(lang, price, pl_url)
                         send_official_wa_image_url(
                             to_number=sender_wa_id,
                             image_url=qr_url,
-                            caption=prompts.get("online_qr_caption")
+                            caption=caption_text
                         )
-                        time.sleep(1.0)
-                        
-                        link_message = prompts.get("online_link_msg").format(price=price, pl_url=pl_url)
-                        send_official_wa_message(sender_wa_id, text=link_message)
                         
                         try:
                             answers_text = "\n".join([f"*{k}*: {v}" for k, v in user_state.get("answers", {}).items()])
@@ -3327,6 +3297,38 @@ def handle_official_wa_message(msg, contact):
             break
             
     if not matched:
+        shopify_products = get_shopify_products_python()
+        matched_products = find_matching_shopify_products(text, shopify_products)
+        
+        if matched_products:
+            if len(matched_products) == 1:
+                p = matched_products[0]
+                body_text = f"🛍️ *{p['title']}*\nPrice: ₹{p['price']}\nLink: https://radikikk.shop/products/{p['handle']}\n\nWould you like to order this product or ask questions about it?"
+                buttons = [
+                    {"id": f"order_variant_{p['variant_id']}", "title": "Order Now"},
+                    {"id": f"ask_variant_{p['variant_id']}", "title": "Ask Details"}
+                ]
+                try:
+                    send_official_wa_interactive_buttons(sender_wa_id, body_text=body_text, buttons=buttons)
+                    print(f"[Shopify Intercept] Sent interactive buttons for {p['title']} to {sender_wa_id}", flush=True)
+                    return
+                except Exception as e:
+                    print(f"[Shopify Intercept Error] {e}", flush=True)
+            else:
+                body_text = "Which product are you interested in?"
+                buttons = []
+                for p in matched_products[:3]:
+                    short_title = p['title']
+                    if len(short_title) > 13:
+                        short_title = short_title[:10] + "..."
+                    buttons.append({"id": f"order_variant_{p['variant_id']}", "title": f"Order {short_title}"})
+                try:
+                    send_official_wa_interactive_buttons(sender_wa_id, body_text=body_text, buttons=buttons)
+                    print(f"[Shopify Intercept] Sent multi product buttons to {sender_wa_id}", flush=True)
+                    return
+                except Exception as e:
+                    print(f"[Shopify Intercept Error] {e}", flush=True)
+
         handle_wa_ai_fallback(sender_wa_id, text, sender_name)
 
 

@@ -469,7 +469,10 @@ async function createShopifyOrderForState(userState, senderJid, senderName, sock
     
     // Extract fields dynamically from collected answers
     const name = extractField(answers, ['name', 'customer', 'full name', 'buyer']) || senderName || 'WhatsApp Customer';
-    const phone = extractField(answers, ['phone', 'mobile', 'contact', 'number']);
+    let phone = extractField(answers, ['phone', 'mobile', 'contact', 'number']);
+    if (!phone && senderJid) {
+        phone = senderJid.split('@')[0];
+    }
     const address = extractField(answers, ['address', 'shipping', 'location', 'delivery']);
     const variantId = extractField(answers, ['variant', 'product', 'id', 'item_id', 'variant_id']);
     const quantityStr = extractField(answers, ['quantity', 'qty', 'count', 'number of items']) || '1';
@@ -915,6 +918,98 @@ function startReposterDaemon() {
     
     reposterProcess = repProc;
 }
+
+function getPaymentInstructionText(lang, price, plUrl) {
+    const langLower = (lang || 'english').toLowerCase().trim();
+    if (langLower === "hindi") {
+        return `💳 *ऑनलाइन भुगतान (Online Payment)* 💳\n\n` +
+            `कुल राशि (Total): *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `कृपया नीचे दिए गए किसी भी विकल्प का उपयोग करके भुगतान पूरा करें:\n` +
+            `1. 📲 ऊपर दिए गए *QR कोड को स्कैन करें* किसी भी यूपीआई ऐप (Google Pay, PhonePe, Paytm आदि) से।\n` +
+            `2. 🔗 या नीचे दिए गए *लिंक पर क्लिक करें*:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _नोट: यह क्यूआर कोड और लिंक केवल 20 मिनट के लिए मान्य हैं।_`;
+    } else if (langLower === "malayalam") {
+        return `💳 *ഓൺലൈൻ പേയ്മെന്റ് (Online Payment)* 💳\n\n` +
+            `ആകെ തുക (Total): *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `ദയവായി താഴെ പറയുന്ന ഏതെങ്കിലും ഒരു മാർഗ്ഗം ഉപയോഗിച്ച് പണമടയ്ക്കുക:\n` +
+            `1. 📲 മുകളിലുള്ള *QR കോഡ് സ്കാൻ ചെയ്യുക* (Google Pay, PhonePe, Paytm തുടങ്ങിയ ഏതെങ്കിലും UPI ആപ്പ് ഉപയോഗിച്ച്).\n` +
+            `2. 🔗 അല്ലെങ്കിൽ താഴെ കാണുന്ന *ലിങ്ക് ക്ലിക്ക് ചെയ്യുക*:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _ശ്രദ്ധിക്കുക: ഈ QR കോഡും ലിങ്കും 20 മിനിറ്റ് മാത്രമേ ലഭ്യമായിരിക്കുകയുള്ളൂ._`;
+    } else if (langLower === "tamil") {
+        return `💳 *ஆன்லைன் கட்டணம் (Online Payment)* 💳\n\n` +
+            `மொத்த தொகை (Total): *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `கீழೇ உள்ள ஏదేனும் ஒரு வழியைப் பயன்படுத்தி உங்கள் கட்டணத்தைச் செலுத்தவும்:\n` +
+            `1. 📲 மேலே உள்ள *QR குறியீட்டை ஸ்கேன் செய்யவும்* (Google Pay, PhonePe, Paytm போன்ற ஏதேனும் ஒரு UPI செயலியைப் பயன்படுத்தி).\n` +
+            `2. 🔗 அல்லது கீழே உள்ள *லிங்கைக் கிளிக் செய்யவும்*:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _குறிப்பு: யூபிআই கியூஆர் குறியீடு மற்றும் கட்டண இணைப்பு இரண்டும் 20 நிமிடங்களில் காலாவதியாகிவிடும்._`;
+    } else if (langLower === "telugu") {
+        return `💳 *ఆన్‌లైన్ చెల్లింపు (Online Payment)* 💳\n\n` +
+            `మొత్తం ధర (Total): *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `దయచేసి క్రింది ఎంపికలలో దేనినైనా ఉపయోగించి మీ చెల్లింపును పూర్తి చేయండి:\n` +
+            `1. 📲 పైన ఉన్న *QR కోడ్‌ను స్కాన్ చేయండి* (Google Pay, PhonePe, Paytm వంటి ఏదైనా UPI యాప్ ద్వారా).\n` +
+            `2. 🔗 లేదా క్రింది *లింక్‌ను క్ಲಿక్ చేయండి*:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _గమనిక: క్యూఆర్ కోడ్ మరియు పేమెంట్ లింక్ రెండూ 20 నిమిషాల్లో ముగుస్తాయి._`;
+    } else if (langLower === "kannada") {
+        return `💳 *ಆನ್‌ಲೈನ್ ಪಾವತಿ (Online Payment)* 💳\n\n` +
+            `ಒಟ್ಟು ಮೊತ್ತ (Total): *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಯಾವುದಾದರೊಂದು ಆಯ್ಕೆಯನ್ನು ಬಳಸಿ ಪಾವತಿಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಿ:\n` +
+            `1. 📲 ಮೇಲಿರುವ *QR ಕೋಡ್ ಅನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ* (Google Pay, PhonePe, Paytm ನಂತಹ ಯಾವುದೇ UPI ಆಪ್ ಬಳಸಿ).\n` +
+            `2. 🔗 ಅಥವಾ ಕೆಳಗಿನ *ಲಿಂಕ್ ಅನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ*:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _ಗಮನಿಸಿ: ಕ್ಯೂಆರ್ ಕೋಡ್ ಮತ್ತು ಪಾವತಿ ಲಿಂಕ್ ಎರಡೂ 20 ನಿಮಿಷಗಳಲ್ಲಿ ಮುಕ್ತಾಯಗೊಳ್ಳುತ್ತವೆ._`;
+    } else {
+        return `💳 *Online Payment Request* 💳\n\n` +
+            `Total Amount: *₹${parseFloat(price).toFixed(2)}*\n\n` +
+            `Please complete your payment using any of the options below:\n` +
+            `1. 📲 *Scan the QR Code* above with any UPI app (Google Pay, PhonePe, Paytm, BHIM, etc.).\n` +
+            `2. 🔗 Or *Click this Payment Link* to pay via UPI, Card, or NetBanking:\n` +
+            `${plUrl}\n\n` +
+            `⏳ _Note: Both the QR code and payment link will expire in 20 minutes._`;
+    }
+}
+
+
+function findMatchingShopifyProducts(text, products) {
+    if (!text || !products) return [];
+    
+    // Normalize and split into words of length >= 3
+    const words = text.toLowerCase().split(/\W+/).filter(w => w.length >= 3);
+    const stopWords = new Set(["for", "the", "and", "with", "from", "into", "your", "mens", "womens", "all", "get", "dry", "wet"]);
+    const queryWords = words.filter(w => !stopWords.has(w));
+    if (queryWords.length === 0) return [];
+    
+    const matched = [];
+    for (const p of products) {
+        const titleLower = p.title.toLowerCase();
+        let matches = false;
+        
+        if (text.toLowerCase().trim().includes(titleLower)) {
+            matches = true;
+        } else {
+            for (const qw of queryWords) {
+                if (titleLower.includes(qw)) {
+                    matches = true;
+                    break;
+                }
+            }
+        }
+        
+        if (matches && p.variants && p.variants[0]) {
+            matched.push({
+                title: p.title,
+                variant_id: p.variants[0].id,
+                price: p.variants[0].price,
+                handle: p.handle
+            });
+        }
+    }
+    return matched;
+}
+
 
   async function getShopifyProducts() {
     const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
@@ -2158,6 +2253,72 @@ async function connectToWhatsApp() {
                 // --- Conversation State Interception ---
                 const orderFlowConfig = loadOrderFlowConfig();
                 const convState = loadConvState();
+
+                if (text.startsWith("order_variant_")) {
+                    const variantId = text.replace("order_variant_", "");
+                    const shopifyProducts = await getShopifyProducts();
+                    let matchedP = null;
+                    for (const p of shopifyProducts) {
+                        if (p.variants && p.variants[0] && String(p.variants[0].id) === variantId) {
+                            matchedP = p;
+                            break;
+                        }
+                    }
+                    if (matchedP) {
+                        const price = matchedP.variants[0].price;
+                        convState[senderJid] = {
+                            step: 'awaiting_payment_choice',
+                            matchedKeywordPattern: "custom_variant_" + variantId,
+                            paymentMethod: null,
+                            answers: {
+                                product_title: matchedP.title,
+                                variant_id: String(variantId),
+                                variant: String(variantId),
+                                price: String(price),
+                                product: matchedP.title
+                            },
+                            updatedAt: Date.now()
+                        };
+                        saveConvState(convState);
+                        
+                        await sock.sendMessage(senderJid, { text: `🛍️ *${matchedP.title}*\nPrice: ₹${price}\n\nLet's start your order!` });
+                        
+                        const choiceText =
+                            `How would you like to pay?\n\n` +
+                            `*1* - ${orderFlowConfig.cod_label}\n` +
+                            `*2* - ${orderFlowConfig.online_label}\n` +
+                            `*3* - Cancel\n\n` +
+                            `Just reply with 1, 2 or 3.`;
+
+                        const buttons = [
+                            { buttonId: 'order_cod', buttonText: { displayText: orderFlowConfig.cod_label }, type: 1 },
+                            { buttonId: 'order_online', buttonText: { displayText: orderFlowConfig.online_label }, type: 1 },
+                            { buttonId: 'order_cancel', buttonText: { displayText: 'Cancel' }, type: 1 }
+                        ];
+
+                        await sock.sendMessage(senderJid, {
+                            text: choiceText,
+                            buttons: buttons,
+                            headerType: 1
+                        });
+                        continue;
+                    }
+                } else if (text.startsWith("ask_variant_")) {
+                    const variantId = text.replace("ask_variant_", "");
+                    const shopifyProducts = await getShopifyProducts();
+                    let matchedP = null;
+                    for (const p of shopifyProducts) {
+                        if (p.variants && p.variants[0] && String(p.variants[0].id) === variantId) {
+                            matchedP = p;
+                            break;
+                        }
+                    }
+                    if (matchedP) {
+                        await handleAIFallback(sock, senderJid, `Explain what the product '${matchedP.title}' is and answer any questions about it.`, senderName);
+                        continue;
+                    }
+                }
+
                 const userState = convState[senderJid];
 
                 if (userState && orderFlowConfig.enabled) {
@@ -2260,17 +2421,46 @@ async function connectToWhatsApp() {
                             await sock.sendMessage(senderJid, { text: orderFlowConfig.questions[nextIdx].prompt });
                         } else {
                             // All questions answered — send the final confirmation.
-                            const template = userState.paymentMethod === 'cod'
-                                ? orderFlowConfig.cod_confirmation_template
-                                : orderFlowConfig.online_confirmation_template;
-
-                            let finalText = template.replace('{payment_link}', orderFlowConfig.payment_link);
-                            for (const [key, value] of Object.entries(userState.answers)) {
-                                finalText = finalText.split(`{${key}}`).join(value);
+                            if (userState.paymentMethod === 'online') {
+                                try {
+                                    const price = userState.answers.price || '999';
+                                    const paymentResp = await fetch(`http://127.0.0.1:${FB_BOT_PORT}/api/razorpay/create`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                            sender_wa_id: senderJid,
+                                            sender_name: senderName,
+                                            price: price,
+                                            answers: userState.answers
+                                        })
+                                    });
+                                    if (paymentResp.ok) {
+                                        const payData = await paymentResp.json();
+                                        if (payData.ok) {
+                                            const captionText = getPaymentInstructionText('english', price, payData.payment_link_url);
+                                            await sock.sendMessage(senderJid, {
+                                                image: { url: payData.qr_url },
+                                                caption: captionText
+                                            });
+                                        }
+                                    }
+                                } catch (payErr) {
+                                    addLog(`[Checkout] Online payment link query failed: ${payErr.message}`);
+                                    await sock.sendMessage(senderJid, { text: "Sorry, we had trouble generating your online payment. Placing your order as Cash on Delivery instead." });
+                                    userState.paymentMethod = 'cod';
+                                }
                             }
 
-                            await delay(1000);
-                            await sock.sendMessage(senderJid, { text: finalText });
+                            if (userState.paymentMethod === 'cod') {
+                                const template = orderFlowConfig.cod_confirmation_template;
+                                let finalText = template;
+                                for (const [key, value] of Object.entries(userState.answers)) {
+                                    finalText = finalText.split(`{${key}}`).join(value);
+                                }
+                                await delay(1000);
+                                await sock.sendMessage(senderJid, { text: finalText });
+                            }
+                            
                             addLog(`Order flow completed for ${senderName} (${userState.paymentMethod}).`);
 
                             // Send order notification to owner 916282444918
@@ -2467,6 +2657,47 @@ async function connectToWhatsApp() {
                 }
                 
                 if (!matched) {
+                    const shopifyProducts = await getShopifyProducts();
+                    const matchedProducts = findMatchingShopifyProducts(text, shopifyProducts);
+                    
+                    if (matchedProducts.length > 0) {
+                        if (matchedProducts.length === 1) {
+                            const p = matchedProducts[0];
+                            const bodyText = `🛍️ *${p.title}*\nPrice: ₹${p.price}\nLink: https://radikikk.shop/products/${p.handle}\n\nWould you like to order this product or ask questions about it?`;
+                            const buttons = [
+                                { buttonId: `order_variant_${p.variant_id}`, buttonText: { displayText: "Order Now" }, type: 1 },
+                                { buttonId: `ask_variant_${p.variant_id}`, buttonText: { displayText: "Ask Details" }, type: 1 }
+                            ];
+                            await sock.sendMessage(senderJid, {
+                                text: bodyText,
+                                buttons: buttons,
+                                headerType: 1
+                            });
+                            addLog(`[Shopify Intercept] Sent single product button to ${senderName}`);
+                            continue;
+                        } else {
+                            const bodyText = "Which product are you interested in?";
+                            const buttons = matchedProducts.slice(0, 3).map(p => {
+                                let shortTitle = p.title;
+                                if (shortTitle.length > 13) {
+                                    shortTitle = shortTitle.slice(0, 10) + "...";
+                                }
+                                return {
+                                    buttonId: `order_variant_${p.variant_id}`,
+                                    buttonText: { displayText: `Order ${shortTitle}` },
+                                    type: 1
+                                };
+                            });
+                            await sock.sendMessage(senderJid, {
+                                text: bodyText,
+                                buttons: buttons,
+                                headerType: 1
+                            });
+                            addLog(`[Shopify Intercept] Sent multi product buttons to ${senderName}`);
+                            continue;
+                        }
+                    }
+
                     await handleAIFallback(sock, senderJid, text, senderName);
                 }
             }
