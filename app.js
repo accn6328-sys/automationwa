@@ -474,6 +474,7 @@ async function createShopifyOrderForState(userState, senderJid, senderName, sock
         phone = senderJid.split('@')[0];
     }
     const address = extractField(answers, ['address', 'shipping', 'location', 'delivery']);
+    const pincode = extractField(answers, ['pincode', 'pin', 'zip', 'zipcode', 'area code', 'postal']);
     const variantId = extractField(answers, ['variant', 'product', 'id', 'item_id', 'variant_id']);
     const quantityStr = extractField(answers, ['quantity', 'qty', 'count', 'number of items']) || '1';
     const priceStr = extractField(answers, ['price', 'amount', 'cost', 'rate']);
@@ -538,7 +539,9 @@ async function createShopifyOrderForState(userState, senderJid, senderName, sock
             shipping_address: {
                 first_name: name,
                 address1: address,
-                phone: phone
+                phone: phone,
+                zip: pincode || "",
+                country: "India"
             },
             financial_status: financialStatus,
             phone: phone
@@ -2421,11 +2424,83 @@ async function connectToWhatsApp() {
                         continue;
                     }
 
+                    if (userState.step === 'confirm_address') {
+                        const lower = incomingText.toLowerCase().trim();
+                        const isConfirm = lower === 'confirm' || lower === 'yes' || lower === 'correct' || lower === '1' || lower === 'addr_confirm';
+                        const isReenter = lower === 'reenter' || lower === 'no' || lower === 'change' || lower === 're-enter' || lower === '2' || lower === 'addr_reenter';
+                        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+                        if (isConfirm) {
+                            userState.step = 'asking_question_3'; // proceed to pincode
+                            userState.updatedAt = Date.now();
+                            convState[senderJid] = userState;
+                            saveConvState(convState);
+
+                            await delay(800);
+                            await sock.sendMessage(senderJid, { text: orderFlowConfig.questions[3].prompt });
+                        } else if (isReenter) {
+                            const prevAddress = userState.answers.address || '';
+                            userState.step = 'asking_question_2'; // back to address
+                            userState.updatedAt = Date.now();
+                            convState[senderJid] = userState;
+                            saveConvState(convState);
+
+                            await delay(800);
+                            await sock.sendMessage(senderJid, {
+                                text: `Your previously entered address was:\n\n"${prevAddress}"\n\nPlease reply with your correct shipping address. 🏠`
+                            });
+                        } else {
+                            const prevAddress = userState.answers.address || '';
+                            const confirmText = `🏠 *Please confirm your Shipping Address:* \n\n${prevAddress}\n\nIs this correct?`;
+                            const buttons = [
+                                { buttonId: 'addr_confirm', buttonText: { displayText: 'Confirm' }, type: 1 },
+                                { buttonId: 'addr_reenter', buttonText: { displayText: 'Re-enter' }, type: 1 }
+                            ];
+                            await delay(800);
+                            try {
+                                await sock.sendMessage(senderJid, {
+                                    text: confirmText,
+                                    buttons: buttons,
+                                    headerType: 1
+                                });
+                            } catch (err) {
+                                await sock.sendMessage(senderJid, { text: `${confirmText}\n\nReply *Confirm* or *Re-enter*.` });
+                            }
+                        }
+                        continue;
+                    }
+
                     if (userState.step.startsWith('asking_question_')) {
                         const currentIdx = parseInt(userState.step.replace('asking_question_', ''), 10);
                         const currentQuestion = orderFlowConfig.questions[currentIdx];
 
                         userState.answers[currentQuestion.key] = incomingText;
+                        
+                        if (currentIdx === 2) {
+                            userState.step = 'confirm_address';
+                            userState.updatedAt = Date.now();
+                            convState[senderJid] = userState;
+                            saveConvState(convState);
+
+                            const confirmText = `🏠 *Please confirm your Shipping Address:* \n\n${incomingText}\n\nIs this correct?`;
+                            const buttons = [
+                                { buttonId: 'addr_confirm', buttonText: { displayText: 'Confirm' }, type: 1 },
+                                { buttonId: 'addr_reenter', buttonText: { displayText: 'Re-enter' }, type: 1 }
+                            ];
+                            const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                            await delay(800);
+                            try {
+                                await sock.sendMessage(senderJid, {
+                                    text: confirmText,
+                                    buttons: buttons,
+                                    headerType: 1
+                                });
+                            } catch (err) {
+                                await sock.sendMessage(senderJid, { text: `${confirmText}\n\nReply *Confirm* or *Re-enter*.` });
+                            }
+                            continue;
+                        }
+
                         const nextIdx = currentIdx + 1;
                         const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 

@@ -1936,6 +1936,7 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
         phone = sender_wa_id.split("@")[0]
         
     address = extract_field_python(answers, ['address', 'shipping', 'location', 'delivery'])
+    pincode = extract_field_python(answers, ['pincode', 'pin', 'zip', 'zipcode', 'area code', 'postal'])
     variant_id = extract_field_python(answers, ['variant', 'product', 'id', 'item_id', 'variant_id'])
     quantity_str = extract_field_python(answers, ['quantity', 'qty', 'count', 'number of items']) or '1'
     price_str = extract_field_python(answers, ['price', 'amount', 'cost', 'rate'])
@@ -2047,7 +2048,9 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
             "shipping_address": {
                 "first_name": name,
                 "address1": address,
-                "phone": phone
+                "phone": phone,
+                "zip": pincode or "",
+                "country": "India"
             },
             "financial_status": financial_status,
             "phone": phone
@@ -3120,6 +3123,72 @@ def handle_official_wa_message(msg, contact):
                 send_official_wa_message(sender_wa_id, text=fallback_msg)
             return
 
+        # STEP: Confirm/Re-enter Address
+        if user_state.get("step") == "confirm_address":
+            is_confirm = False
+            is_reenter = False
+            
+            if msg.get("type") == "interactive":
+                interactive_data = msg.get("interactive", {})
+                if interactive_data.get("type") == "button_reply":
+                    reply_id = interactive_data.get("button_reply", {}).get("id", "")
+                    if reply_id == "addr_confirm":
+                        is_confirm = True
+                    elif reply_id == "addr_reenter":
+                        is_reenter = True
+            else:
+                lower = text.lower().strip()
+                if "confirm" in lower or "yes" in lower or "correct" in lower or lower == "1":
+                    is_confirm = True
+                elif "reenter" in lower or "no" in lower or "change" in lower or "re-enter" in lower or lower == "2":
+                    is_reenter = True
+            
+            lang = user_state.get("language", "english")
+            questions = order_flow_config.get("questions", [])
+            
+            if is_confirm:
+                # Proceed to next question (Pincode - asking_question_3)
+                user_state["step"] = "asking_question_3"
+                user_state["updatedAt"] = int(time.time() * 1000)
+                conv_state[sender_wa_id] = user_state
+                save_conv_state(conv_state)
+                
+                next_q = questions[3] # pincode
+                prompt = next_q.get("prompt")
+                translated_prompt = LOCALIZED_PROMPTS.get(lang, LOCALIZED_PROMPTS["english"]).get("pincode_prompt")
+                if not translated_prompt:
+                    translated_prompt = translate_preserving_links(prompt, lang)
+                time.sleep(0.8)
+                send_official_wa_message(sender_wa_id, text=translated_prompt)
+                return
+            elif is_reenter:
+                # Show previously entered address and prompt them to make change
+                prev_address = user_state["answers"].get("address", "")
+                user_state["step"] = "asking_question_2" # back to address question
+                user_state["updatedAt"] = int(time.time() * 1000)
+                conv_state[sender_wa_id] = user_state
+                save_conv_state(conv_state)
+                
+                msg_body = f"Your previously entered address was:\n\n\"{prev_address}\"\n\nPlease reply with your correct shipping address. 🏠"
+                translated_body = translate_preserving_links(msg_body, lang)
+                send_official_wa_message(sender_wa_id, text=translated_body)
+                return
+            else:
+                # Send the choice again if not confirmed or reentered
+                prev_address = user_state["answers"].get("address", "")
+                body_text = f"🏠 *Please confirm your Shipping Address:* \n\n{prev_address}\n\nIs this correct?"
+                translated_body = translate_preserving_links(body_text, lang)
+                buttons = [
+                    {"id": "addr_confirm", "title": "Confirm"},
+                    {"id": "addr_reenter", "title": "Re-enter"}
+                ]
+                try:
+                    send_official_wa_interactive_buttons(sender_wa_id, body_text=translated_body, buttons=buttons)
+                except Exception as e:
+                    fallback_msg = f"{translated_body}\n\nReply *Confirm* or *Re-enter*."
+                    send_official_wa_message(sender_wa_id, text=fallback_msg)
+                return
+
         # STEP: Asking Checkout Questions
         if user_state.get("step", "").startswith("asking_question_"):
             try:
@@ -3130,6 +3199,29 @@ def handle_official_wa_message(msg, contact):
             current_question = questions[current_idx]
             
             user_state["answers"][current_question["key"]] = text
+            
+            if current_idx == 2:
+                # Intercept address question for confirm/re-enter confirmation
+                user_state["step"] = "confirm_address"
+                user_state["updatedAt"] = int(time.time() * 1000)
+                conv_state[sender_wa_id] = user_state
+                save_conv_state(conv_state)
+                
+                body_text = f"🏠 *Please confirm your Shipping Address:* \n\n{text}\n\nIs this correct?"
+                lang = user_state.get("language", "english")
+                translated_body = translate_preserving_links(body_text, lang)
+                buttons = [
+                    {"id": "addr_confirm", "title": "Confirm"},
+                    {"id": "addr_reenter", "title": "Re-enter"}
+                ]
+                try:
+                    send_official_wa_interactive_buttons(sender_wa_id, body_text=translated_body, buttons=buttons)
+                except Exception as e:
+                    print(f"Failed to send address confirmation buttons: {e}. Falling back to text prompt.", flush=True)
+                    fallback_msg = f"{translated_body}\n\nReply *Confirm* or *Re-enter*."
+                    send_official_wa_message(sender_wa_id, text=fallback_msg)
+                return
+
             next_idx = current_idx + 1
             
             if next_idx < len(questions):
