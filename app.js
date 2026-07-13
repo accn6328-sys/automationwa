@@ -689,12 +689,16 @@ function clearSessionFiles(dir) {
 // ── YT Bot subprocess launcher ──────────────────────────────────────────────
 // The Python Flask YT bot runs on internal port 8080, proxied at /yt/*
 const PORT = process.env.PORT || 3000;
+// Swap YT bot and Express ports if PORT is 8080 (Railway default target port)
+// so that Express runs on 8081 (where Railway routes traffic) and YT bot runs on 8080 internally.
+const EXPRESS_PORT = PORT == 8080 ? 8081 : PORT;
+const YT_BOT_PORT = PORT == 8080 ? 8080 : parseInt(PORT) + 1;
+const FB_BOT_PORT = parseInt(PORT) + 2;
+
 const YT_BOT_DIR = path.join(__dirname, 'yt-bot');
-const YT_BOT_PORT = parseInt(PORT) + 1;
 let ytBotProcess = null;
 
 const FB_BOT_DIR = path.join(__dirname, 'fb-bot');
-const FB_BOT_PORT = parseInt(PORT) + 2;
 let fbBotProcess = null;
 
 function findPythonBinary() {
@@ -2089,9 +2093,9 @@ async function connectToWhatsApp() {
     }
 }
 
-server.listen(PORT, () => {
-    addLog(`Server is running on port ${PORT}`);
-    addLog(`Dashboard URL: http://localhost:${PORT}`);
+server.listen(EXPRESS_PORT, () => {
+    addLog(`Server is running on port ${EXPRESS_PORT}`);
+    addLog(`Dashboard URL: http://localhost:${EXPRESS_PORT}`);
     addLog(`Persistent storage path: ${persistentDir || 'None (using local fallback)'}`);
     connectToWhatsApp();
     startYTBot();
