@@ -2129,6 +2129,22 @@ LOCALIZED_PROMPTS = {
         "online_btn": "Online Payment",
         "cancel_btn": "Cancel"
     },
+    "tamil": {
+        "choose_lang": "தயவுசெய்து உங்கள் மொழியைத் தேர்ந்தெடுக்கவும்:",
+        "payment_choice": "நீங்கள் எவ்வாறு பணம் செலுத்த விரும்புகிறீர்கள்? தயவுசெய்து கீழே உள்ள விருப்பங்களில் ஒன்றைத் தேர்ந்தெடுக்கவும்:",
+        "cancel_confirm": "பிரச்சனை இல்லை, ஆர்டர் ரத்து செய்யப்பட்டது. எப்போது வேண்டுமானாலும் எங்களுக்கு செய்தி அனுப்பலாம்!",
+        "cod_confirm": "நன்றி {name}! உங்கள் கேஷ் ஆன் டெலிவரி ஆர்டர் உறுதி செய்யப்பட்டுள்ளது.",
+        "online_link_msg": "💳 *ஆன்லைன் கட்டணம் தேவை*\n\nதயவுசெய்து கீழே உள்ள இணைப்பைப் பயன்படுத்தி *₹{price:.2f}* கட்டணத்தை செலுத்தவும்:\n\n🔗 {pl_url}\n\n⏳ _குறிப்பு: யூபிஐ கியூஆர் குறியீடு மற்றும் கட்டண இணைப்பு இரண்டும் 20 நிமிடங்களில் காலாவதியாகிவிடும்._",
+        "online_qr_caption": "ஏதேனும் யூபிஐ செயலியை (Google Pay, PhonePe, Paytm போன்றவை) பயன்படுத்தி ஸ்கேன் செய்து பணம் செலுத்தவும்",
+        "failed_payment_gen": "⚠️ மன்னிக்கவும், ஆன்லைன் கட்டண இணைப்பை உருவாக்குவதில் சிக்கல் ஏற்பட்டது. தயவுசெய்து மீண்டும் முயற்சிக்கவும் அல்லது கேஷ் ஆன் டெலிவரி முறையைத் தேர்ந்தெடுக்கவும்.",
+        "name_prompt": "உங்கள் முழு பெயர் என்ன? 👤",
+        "phone_prompt": "உங்கள் மொபைல் எண் என்ன? 📞",
+        "address_prompt": "உங்கள் விநியோக முகவரி என்ன? 🏠",
+        "pincode_prompt": "உங்கள் பின்கோடு என்ன? 📮",
+        "cod_btn": "கேஷ் ஆன் டெலிவரி",
+        "online_btn": "ஆன்லைன் கட்டணம்",
+        "cancel_btn": "ரத்துசெய்"
+    },
     "malayalam": {
         "choose_lang": "നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:",
         "payment_choice": "നിങ്ങൾ എങ്ങനെയാണ് പണമടയ്ക്കാൻ ആഗ്രഹിക്കുന്നത്? ദയവായി താഴെ നൽകിയിരിക്കുന്നതിൽ നിന്നും തിരഞ്ഞെടുക്കുക:",
@@ -2202,6 +2218,7 @@ def translate_text(text, target_lang):
         "english": "en",
         "hindi": "hi",
         "malayalam": "ml",
+        "tamil": "ta",
         "telugu": "te",
         "kannada": "kn"
     }
@@ -2285,27 +2302,29 @@ def send_language_selection(to_number):
         {"id": "lang_english", "title": "English", "description": "English"},
         {"id": "lang_hindi", "title": "हिन्दी", "description": "Hindi"},
         {"id": "lang_malayalam", "title": "മലയാളം", "description": "Malayalam"},
+        {"id": "lang_tamil", "title": "தமிழ்", "description": "Tamil"},
         {"id": "lang_telugu", "title": "തെലുങ്ക്", "description": "Telugu"},
         {"id": "lang_kannada", "title": "ಕನ್ನಡ", "description": "Kannada"}
     ]
     try:
         send_official_wa_list(
             to_number=to_number,
-            header="Language / ഭാഷ",
-            body="Select your language to proceed:\nതുടരുന്നതിന് നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:",
+            header="Language / மொழி / ഭാഷ / भाषा",
+            body="🌐 Choose Your Language / ഭാഷ തിരഞ്ഞെടുക്കുക / भाषा चुनें / மொழியைத் தேர்ந்தெடுக்கவும் / భాషను எంచుకోండి / ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ",
             button_text="Choose Language",
             rows=rows
         )
     except Exception as e:
         print(f"Failed to send WhatsApp interactive list: {e}. Falling back to text.", flush=True)
         fallback_msg = (
-            "🌐 Please select your language / നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:\n\n"
+            "🌐 Choose Your Language / ഭാഷ തിരഞ്ഞെടുക്കുക / भाषा चुनें / மொழியைத் தேர்ந்தெடுக்கவும் / భాషను எంచుకోండి / ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ\n\n"
             "1. English\n"
             "2. हिन्दी (Hindi)\n"
             "3. മലയാളം (Malayalam)\n"
-            "4. తెలుగు (Telugu)\n"
-            "5. ಕನ್ನಡ (Kannada)\n\n"
-            "Please reply with the number (1-5) or name."
+            "4. தமிழ் (Tamil)\n"
+            "5. Telugu (తెలుగు)\n"
+            "6. Kannada (ಕನ್ನಡ)\n\n"
+            "Please reply with the number (1-6) or language name."
         )
         send_official_wa_message(to_number, text=fallback_msg)
 
@@ -2510,9 +2529,11 @@ def handle_official_wa_message(msg, contact):
                     selected_lang = "hindi"
                 elif val in ["3", "malayalam", "mal", "ml", "മലയാളം"]:
                     selected_lang = "malayalam"
-                elif val in ["4", "telugu", "tel", "te", "తెలుగు"]:
+                elif val in ["4", "tamil", "tam", "ta", "தமிழ்"]:
+                    selected_lang = "tamil"
+                elif val in ["5", "telugu", "tel", "te", "తెలుగు"]:
                     selected_lang = "telugu"
-                elif val in ["5", "kannada", "kan", "kn", "ಕನ್ನಡ"]:
+                elif val in ["6", "kannada", "kan", "kn", "ಕನ್ನಡ"]:
                     selected_lang = "kannada"
                     
             if not selected_lang:
