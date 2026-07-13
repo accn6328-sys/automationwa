@@ -2,9 +2,7 @@ import os
 import sys
 import time
 import json
-import base64
 import requests
-import subprocess
 import re
 from pathlib import Path
 from datetime import datetime
@@ -94,7 +92,7 @@ def get_youtube_client():
 
     return build("youtube", "v3", credentials=creds)
 
-def upload_youtube_short(youtube, video_path: Path, title: str, description: str, tags: list):
+def upload_youtube_short(youtube, video_path: Path, title: str, description: str, tags: list, category_id: str = "22"):
     from googleapiclient.http import MediaFileUpload
 
     title_str = title.strip()
@@ -110,7 +108,7 @@ def upload_youtube_short(youtube, video_path: Path, title: str, description: str
             "title": title_str,
             "description": description,
             "tags": tags,
-            "categoryId": "22"  # People & Blogs
+            "categoryId": category_id
         },
         "status": {
             "privacyStatus": "public",
@@ -163,95 +161,16 @@ def save_uploaded_cache(cache: dict):
     except Exception as e:
         log(f"Failed to save upload cache: {e}", "WARN")
 
-# ─── Audio and Frame Extraction Helpers ──────────────────────────────────────
-def extract_audio(video_path: Path, audio_path: Path) -> bool:
-    try:
-        cmd = [
-            "ffmpeg", "-y", "-i", str(video_path),
-            "-vn", "-ar", "16000", "-ac", "1", "-b:a", "64k",
-            str(audio_path)
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return True
-    except Exception as e:
-        log(f"Failed to extract audio using ffmpeg: {e}", "WARN")
-        return False
+# ─── AI Metadata Generation via LLM ─────────────────────────────────────────
+def generate_shorts_metadata(original_caption: str) -> dict:
+    log("Analyzing Instagram caption via AI to generate short title and tags...")
 
-def extract_keyframe(video_path: Path, timestamp_sec: float, output_path: Path) -> bool:
-    try:
-        cmd = [
-            "ffmpeg", "-y", "-ss", str(timestamp_sec),
-            "-i", str(video_path),
-            "-frames:v", "1", "-q:v", "2",
-            str(output_path)
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return True
-    except Exception as e:
-        log(f"Failed to extract keyframe: {e}", "WARN")
-        return False
-
-def get_video_duration(video_path: Path) -> float:
-    try:
-        cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return float(res.stdout.strip())
-    except Exception:
-        return 15.0
-
-# ─── AI Whisper Audio Transcription (Groq) ──────────────────────────────────
-def transcribe_audio_groq(audio_path: Path) -> str:
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        log("Missing GROQ_API_KEY env. Skipping audio transcription.", "WARN")
-        return ""
-
-    log("Transcribing audio via Groq Whisper...")
-    try:
-        url = "https://api.groq.com/openai/v1/audio/transcriptions"
-        headers = {"Authorization": f"Bearer {groq_key}"}
-        with open(audio_path, "rb") as f:
-            files = {"file": (audio_path.name, f, "audio/mp3")}
-            data = {"model": "whisper-large-v3"}
-            resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-            if resp.status_code == 200:
-                text = resp.json().get("text", "")
-                log("Audio transcribed successfully!")
-                return text
-            else:
-                log(f"Groq Whisper returned status {resp.status_code}: {resp.text}", "WARN")
-    except Exception as e:
-        log(f"Failed to call Groq Whisper: {e}", "WARN")
-    return ""
-
-# ─── AI Vision Frame Analysis (Gemini) ─────────────────────────────────────
-def run_video_analysis_gemini(video_path: Path, duration: float, original_caption: str) -> str:
-    log("Extracting keyframes for visual context...")
-    t1 = max(0.5, duration * 0.25)
-    t2 = max(1.0, duration * 0.60)
-
-    f1_path = DOWNLOADS_DIR / "frame_t1.jpg"
-    f2_path = DOWNLOADS_DIR / "frame_t2.jpg"
-
-    ok1 = extract_keyframe(video_path, t1, f1_path)
-    ok2 = extract_keyframe(video_path, t2, f2_path)
-
-    base64_frames = []
-    for fp in [f1_path, f2_path]:
-        if fp.exists():
-            try:
-                with open(fp, "rb") as f:
-                    base64_frames.append(base64.b64encode(f.read()).decode("utf-8"))
-                fp.unlink()
-            except Exception:
-                pass
-
-    if not base64_frames:
-        log("No keyframe frames could be extracted.", "WARN")
-        return "No keyframe images available. Analysis will default to text caption only."
+    # Load API keys from environment
+    groq_keys = []
+    for k in ["GROQ_API_KEY", "GROQ_API_KEY_ALT", "GROQ_API_KEY_ALT2"]:
+        val = os.getenv(k)
+        if val and val.strip():
+            groq_keys.append((val.strip(), k))
 
     gemini_keys = []
     for k in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "gemini_pro_key"]:
@@ -260,6 +179,15 @@ def run_video_analysis_gemini(video_path: Path, duration: float, original_captio
             gemini_keys.append((val.strip(), k))
 
     clients = []
+    # Try Groq Llama first (usually faster and cheaper)
+    for key, key_name in groq_keys:
+        clients.append({
+            "key": key,
+            "url": "https://api.groq.com/openai/v1",
+            "model": "llama-3.3-70b-versatile",
+            "label": f"Groq Llama 70B ({key_name})"
+        })
+    # Fallback to Gemini OpenAI compatibility layer
     for key, key_name in gemini_keys:
         clients.append({
             "key": key,
@@ -268,89 +196,36 @@ def run_video_analysis_gemini(video_path: Path, duration: float, original_captio
             "label": f"Gemini 2.5 Flash ({key_name})"
         })
 
-    for cfg in clients:
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=cfg["key"], base_url=cfg["url"])
-
-            content = [
-                {
-                    "type": "text",
-                    "text": (
-                        "Analyze these video keyframes. Describe the video topic, product/category shown, "
-                        "what is happening in the scene, key objects visible, and overall intent.\n"
-                        f"Original Instagram caption: {original_caption}"
-                    )
-                }
-            ]
-            for b64 in base64_frames:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
-                })
-
-            resp = client.chat.completions.create(
-                model=cfg["model"],
-                messages=[{"role": "user", "content": content}],
-                max_tokens=500,
-                timeout=25
-            )
-            ans = resp.choices[0].message.content
-            if ans:
-                log(f"Vision analysis succeeded using {cfg['label']}")
-                return ans.strip()
-        except Exception as e:
-            log(f"Vision client '{cfg['label']}' failed: {e}", "WARN")
-
-    return "Vision AI analysis unavailable."
-
-# ─── Metadata Synthesis (Gemini/Llama) ──────────────────────────────────────
-def generate_shorts_metadata(original_caption: str, video_analysis: str, transcript: str) -> dict:
-    log("Synthesizing final Shorts metadata using AI...")
-
-    groq_keys = []
-    for k in ["GROQ_API_KEY", "GROQ_API_KEY_ALT", "GROQ_API_KEY_ALT2"]:
-        val = os.getenv(k)
-        if val and val.strip():
-            groq_keys.append((val.strip(), k))
-
-    clients = []
-    for key, key_name in groq_keys:
-        clients.append({
-            "key": key,
-            "url": "https://api.groq.com/openai/v1",
-            "model": "llama-3.3-70b-versatile",
-            "label": f"Groq Llama 70B ({key_name})"
-        })
-
     prompt = f"""
 You are an expert social media manager.
-Analyze the video details and validate the caption relevance.
+Analyze the following Instagram caption and generate optimized metadata for a YouTube Shorts video.
 
-Original Instagram Caption:
+Instagram Caption:
 {original_caption}
 
-Video Audio Transcript:
-{transcript}
-
-AI Video Scene Analysis:
-{video_analysis}
-
 Tasks:
-1. Caption Validation:
-   - Determine if the original caption is relevant, misleading, or incomplete compared to the actual video content.
-2. Generate YouTube Shorts Metadata:
-   - Title: Catchy, engaging, optimized for YouTube Shorts, maximum 100 characters. Append "#shorts" at the end of the title.
-   - Description: The final caption / description content (with the hashtags and details).
-   - Tags: Generate a list of comma-separated tags. Always include "shopping" first, then add 5-8 relevant tags based on the video context (e.g., gadgets, shorts, product review, viral products).
+1. Generate Title:
+   - Create a catchy, engaging title of EXACTLY 3 or 4 words that describes the product.
+   - Do NOT include hashtags or symbols in these 3-4 words.
+   - Append "#shorts" at the very end of the title.
+2. Select Category ID:
+   - Choose the best matching YouTube Video Category ID from the list below:
+     "22" -> People & Blogs / General Shopping / Products
+     "28" -> Science & Technology / Gadgets / Electronics
+     "26" -> Howto & Style / Cleaning / Home Decor / Fashion
+     "24" -> Entertainment
+     "17" -> Sports
+     "19" -> Travel & Events
+3. Generate Tags:
+   - List 5 to 8 comma-separated relevant tags.
+   - The first tag MUST always be "shopping".
+   - The remaining tags should be derived from the product context (e.g. gadgets, home decor, cleaning).
 
 Response format:
 Respond ONLY with a valid JSON object. Do not include markdown wraps (like ```json) or outer text.
 The JSON object must have exactly these keys:
-- "caption_status": "relevant" / "misleading" / "incomplete" / "missing"
-- "validation_reason": "Brief explanation of relevance check"
-- "title": "Optimized YouTube Shorts Title #shorts"
-- "description": "YouTube Shorts Description content"
+- "title": "Catchy Product Title #shorts"
+- "category_id": "22"
 - "tags": ["shopping", "tag2", "tag3", ...]
 """
 
@@ -362,8 +237,8 @@ The JSON object must have exactly these keys:
             resp = client.chat.completions.create(
                 model=cfg["model"],
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
-                timeout=20
+                max_tokens=250,
+                timeout=15
             )
             reply = resp.choices[0].message.content.strip()
             
@@ -377,13 +252,11 @@ The JSON object must have exactly these keys:
             log(f"Text client '{cfg['label']}' failed: {e}", "WARN")
 
     # Fallback
-    log("AI metadata synthesis failed. Using default metadata.", "WARN")
+    log("AI metadata generation failed. Using default metadata.", "WARN")
     return {
-        "caption_status": "relevant",
-        "validation_reason": "AI fallback.",
-        "title": "Amazing Product Review! 😍✨ #shorts",
-        "description": f"{original_caption}\n\n#shorts",
-        "tags": ["shopping", "shorts", "viralproducts", "gadgets"]
+        "title": "Amazing New Find! 😍✨ #shorts",
+        "category_id": "22",
+        "tags": ["shopping", "shorts", "viralproducts"]
     }
 
 # ─── Main Job Run ────────────────────────────────────────────────────────────
@@ -451,30 +324,18 @@ def run_reposter_job():
                     f.write(chunk)
         log("Video downloaded successfully!")
 
-        # Step 3: Extract Audio & Visuals
-        audio_path = DOWNLOADS_DIR / f"{ig_id}.mp3"
-        duration = get_video_duration(video_path)
-
-        transcript = ""
-        if extract_audio(video_path, audio_path):
-            transcript = transcribe_audio_groq(audio_path)
-            # Cleanup audio
-            try:
-                audio_path.unlink()
-            except Exception:
-                pass
-
-        video_analysis = run_video_analysis_gemini(video_path, duration, caption)
-
-        # Step 4: Generate Metadata
-        metadata = generate_shorts_metadata(caption, video_analysis, transcript)
+        # Step 3: Generate AI Metadata (Title, Tags, Category)
+        metadata = generate_shorts_metadata(caption)
         title = metadata.get("title", "YouTube Shorts Upload")
-        description = metadata.get("description", "")
+        category_id = metadata.get("category_id", "22")
         tags = metadata.get("tags", ["shorts", "shopping"])
 
-        # Step 5: Upload to YouTube Shorts
+        # Description is set directly to the full original Instagram caption
+        description = caption
+
+        # Step 4: Upload to YouTube Shorts
         log(f"Uploading to YouTube Shorts with title: {title}")
-        video_id = upload_youtube_short(youtube, video_path, title, description, tags)
+        video_id = upload_youtube_short(youtube, video_path, title, description, tags, category_id)
 
         if video_id:
             yt_url = f"https://www.youtube.com/shorts/{video_id}"
