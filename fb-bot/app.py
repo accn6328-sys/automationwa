@@ -2528,6 +2528,27 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons):
         return send_official_wa_message(to_number, text=body_text)
 
 
+def get_shopify_products_python():
+    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
+    if not admin_token or not store_domain:
+        return []
+    clean_domain = store_domain.strip().replace("https://", "").replace("http://", "").split("/")[0]
+    if not clean_domain.endswith(".myshopify.com") and "." not in clean_domain:
+        clean_domain = f"{clean_domain}.myshopify.com"
+    url = f"https://{clean_domain}/admin/api/2026-01/products.json?limit=50&fields=title,variants,status"
+    headers = {
+        "X-Shopify-Access-Token": admin_token
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=8)
+        if r.status_code == 200:
+            return r.json().get("products") or []
+    except Exception as e:
+        print(f"[Shopify Products] Fetch failed: {e}", flush=True)
+    return []
+
+
 def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     print(f"[AIFallback] Triggering WhatsApp AI Fallback for {sender_name} ({sender_wa_id})...", flush=True)
     
@@ -2550,6 +2571,19 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
                 context += f"- Trigger Keyword: \"{kw}\"\n  Details/Reply:\n{rule_text}\n\n"
     except Exception as e:
         print(f"[AIFallback] Error loading products context: {e}", flush=True)
+
+    # Load Shopify products dynamically
+    try:
+        shopify_products = get_shopify_products_python()
+        if shopify_products and len(shopify_products) > 0:
+            context += "Shopify Store Products:\n"
+            for p in shopify_products:
+                if p.get("status") == "active":
+                    variants = p.get("variants") or []
+                    price = variants[0].get("price") if variants else "N/A"
+                    context += f"- Product Title: \"{p.get('title')}\"\n  Status: In Stock / Listed\n  Price: ₹{price}\n\n"
+    except Exception as e:
+        print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
 
     # Load Instagram automations from the SQLite database
     try:
@@ -2586,10 +2620,12 @@ Our Product Catalog & Promotions:
 
 Instructions:
 1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
-2. Be friendly, polite, and helpful. Write in natural, grammatically correct, and complete sentences. Do not leave sentences cut off or incomplete.
-3. Keep the response concise but comprehensive enough to answer their question (maximum 100 words).
-4. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
-5. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
+2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
+3. Check the "Shopify Store Products" and "Available Products" list to see if the product they are asking about is listed.
+   - If the product IS listed: Tell the customer that the product is "in stock" in their language and answer any details or price questions using the catalog data.
+   - If the product IS NOT listed: Politely tell them we don't have it in stock currently.
+4. Crucially: Do not answer or converse about anything external to the products in our list. If they ask about unrelated topics, politely refuse to answer.
+5. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
 """
 
     # Try Groq Llama first

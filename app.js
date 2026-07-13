@@ -908,12 +908,32 @@ function startReposterDaemon() {
         reposterProcess = null;
         setTimeout(startReposterDaemon, 10000);
     });
-    
-    repProc.on('error', err => {
-        addLog(`❌ [Reposter Bot] Spawn error: ${err.message}`);
-    });
-    
-    reposterProcess = repProc;
+  async function getShopifyProducts() {
+    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
+    let storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
+    if (!adminToken || !storeDomain) {
+        return [];
+    }
+    let cleanDomain = storeDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (!cleanDomain.endsWith(".myshopify.com") && !cleanDomain.includes(".")) {
+        cleanDomain = `${cleanDomain}.myshopify.com`;
+    }
+    try {
+        const url = `https://${cleanDomain}/admin/api/2026-01/products.json?limit=50&fields=title,variants,status`;
+        const response = await fetch(url, {
+            headers: {
+                "X-Shopify-Access-Token": adminToken
+            },
+            signal: AbortSignal.timeout(6000)
+        });
+        if (response.ok) {
+            const data = await response.json();
+            return data.products || [];
+        }
+    } catch (e) {
+        console.log(`[Shopify Products] Fetch failed: ${e.message}`);
+    }
+    return [];
 }
 
 async function handleAIFallback(sock, senderJid, text, senderName) {
@@ -929,6 +949,22 @@ async function handleAIFallback(sock, senderJid, text, senderName) {
         }
     } catch (e) {
         addLog(`[AIFallback] Error loading products context: ${e.message}`);
+    }
+
+    // Load Shopify products dynamically
+    try {
+        const shopifyProducts = await getShopifyProducts();
+        if (shopifyProducts && shopifyProducts.length > 0) {
+            context += "Shopify Store Products:\n";
+            shopifyProducts.forEach(p => {
+                if (p.status === "active") {
+                    const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
+                    context += `- Product Title: "${p.title}"\n  Status: In Stock / Listed\n  Price: ₹${price}\n\n`;
+                }
+            });
+        }
+    } catch (e) {
+        addLog(`[AIFallback] Error loading Shopify products context: ${e.message}`);
     }
 
     // Load Instagram automations from local Flask API if running
@@ -972,10 +1008,12 @@ ${context}
 
 Instructions:
 1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
-2. Be friendly, polite, and helpful. Write in natural, grammatically correct, and complete sentences. Do not leave sentences cut off or incomplete.
-3. Keep the response concise but comprehensive enough to answer their question (maximum 100 words).
-4. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
-4. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
+2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
+3. Check the "Shopify Store Products" and "Available Products" list to see if the product they are asking about is listed.
+   - If the product IS listed: Tell the customer that the product is "in stock" in their language and answer any details or price questions using the catalog data.
+   - If the product IS NOT listed: Politely tell them we don't have it in stock currently.
+4. Crucially: Do not answer or converse about anything external to the products in our list. If they ask about unrelated topics, politely refuse to answer.
+5. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
 `;
 
     // Try Groq Llama first
