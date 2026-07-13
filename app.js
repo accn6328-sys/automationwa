@@ -916,6 +916,147 @@ function startReposterDaemon() {
     reposterProcess = repProc;
 }
 
+async function handleAIFallback(sock, senderJid, text, senderName) {
+    addLog(`[AIFallback] Processing AI response for ${senderName}...`);
+    
+    // 1. Load context
+    let context = "Available Products and Catalog Rules:\n";
+    try {
+        const keywords = loadKeywords();
+        for (const [kw, rule] of Object.entries(keywords)) {
+            context += `- Trigger Keyword: "${kw}"\n`;
+            context += `  Details/Reply:\n${rule.text || rule}\n\n`;
+        }
+    } catch (e) {
+        addLog(`[AIFallback] Error loading products context: ${e.message}`);
+    }
+
+    // Load Instagram automations from local Flask API if running
+    try {
+        const response = await fetch(`http://127.0.0.1:${FB_BOT_PORT}/instagram/ui/automations`, { signal: AbortSignal.timeout(3000) });
+        if (response.ok) {
+            const autos = await response.json();
+            if (autos && autos.length > 0) {
+                context += "Instagram Promotions / Automations:\n";
+                for (const auto of autos) {
+                    if (auto.active) {
+                        context += `- Promotion Name: "${auto.name}"\n`;
+                        if (auto.reply) context += `  Comments Reply: "${auto.reply}"\n`;
+                        if (auto.dm_message) context += `  DM Reply: "${auto.dm_message}"\n`;
+                        if (auto.link_url) context += `  Product Link: "${auto.link_url}"\n`;
+                        context += "\n";
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Quietly fail
+    }
+
+    // Set typing state
+    try {
+        await sock.presenceSubscribe(senderJid);
+        await sock.sendPresenceUpdate('composing', senderJid);
+    } catch (e) {}
+
+    const prompt = `
+You are a helpful customer support agent for our online store.
+Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
+
+Customer Details:
+Name: ${senderName}
+Message: "${text}"
+
+Our Product Catalog & Promotions:
+${context}
+
+Instructions:
+1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
+2. Be friendly, polite, and extremely concise (maximum 2-3 sentences).
+3. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
+4. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
+`;
+
+    // Try Groq Llama first
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+        try {
+            const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${groqKey}`
+                },
+                body: JSON.stringify({
+                    model: "llama-3-8b-8192",
+                    messages: [{ role: "user", content: prompt }],
+                    max_tokens: 300,
+                    temperature: 0.7
+                }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                const aiMsg = data.choices[0].message.content.trim();
+                if (aiMsg) {
+                    try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+                    await sock.sendMessage(senderJid, { text: aiMsg });
+                    addLog(`[AIFallback] Replied using Groq Llama 8B to ${senderName}.`);
+                    return;
+                }
+            } else {
+                addLog(`[AIFallback] Groq Llama returned status ${resp.status}: ${await resp.text()}`);
+            }
+        } catch (err) {
+            addLog(`[AIFallback] Groq Llama failed: ${err.message}`);
+        }
+    }
+
+    // Try Gemini fallback
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY_2;
+    if (geminiKey) {
+        try {
+            const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${geminiKey}`
+                },
+                body: JSON.stringify({
+                    model: "gemini-2.5-flash",
+                    messages: [{ role: "user", content: prompt }],
+                    max_tokens: 300,
+                    temperature: 0.7
+                }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                const aiMsg = data.choices[0].message.content.trim();
+                if (aiMsg) {
+                    try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+                    await sock.sendMessage(senderJid, { text: aiMsg });
+                    addLog(`[AIFallback] Replied using Gemini Flash to ${senderName}.`);
+                    return;
+                }
+            } else {
+                addLog(`[AIFallback] Gemini returned status ${resp.status}: ${await resp.text()}`);
+            }
+        } catch (err) {
+            addLog(`[AIFallback] Gemini failed: ${err.message}`);
+        }
+    }
+
+    // Hard fallback if both AI APIs fail
+    try {
+        try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+        await sock.sendMessage(senderJid, { text: "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer." });
+        addLog(`[AIFallback] Sent default fallback reply to ${senderName}.`);
+    } catch (e) {
+        addLog(`[AIFallback] Failed to send fallback message: ${e.message}`);
+    }
+}
+
 // Server setup
 const app = express();
 const server = http.createServer(app);
@@ -1990,6 +2131,7 @@ async function connectToWhatsApp() {
                 // Match keywords
                 const kwMap = loadKeywords();
                 const cleanText = text.trim().toLowerCase();
+                let matched = false;
                 
                 for (const [kwPattern, ruleData] of Object.entries(kwMap)) {
                     // Support comma-separated keywords (e.g. "host, hoster, hostinger")
@@ -2120,11 +2262,16 @@ async function connectToWhatsApp() {
                                 addLog(`Initialized order flow in awaiting_second_message state for ${senderName}.`);
                             }
 
-                            break; // Stop after first match
+                             matched = true;
+                             break; // Stop after first match
                         } catch (err) {
                             addLog(`Failed to send message: ${err.message}`);
                         }
                     }
+                }
+                
+                if (!matched) {
+                    await handleAIFallback(sock, senderJid, text, senderName);
                 }
             }
         });
