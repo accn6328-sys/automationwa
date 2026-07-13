@@ -2549,10 +2549,25 @@ def get_shopify_products_python():
 def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     print(f"[AIFallback] Triggering WhatsApp AI Fallback for {sender_name} ({sender_wa_id})...", flush=True)
     
-    # 1. Build a COMPACT context to avoid token overflow causing truncated sentences
+    # 1. Load active conversation state
+    conv_state = load_conv_state()
+    user_state = conv_state.get(sender_wa_id)
+    if not user_state:
+        user_state = {
+            "step": "ai_chat",
+            "answers": {},
+            "paymentMethod": None,
+            "matchedKeywordPattern": None,
+            "updatedAt": int(time.time() * 1000)
+        }
+    
+    current_answers = json.dumps(user_state.get("answers", {}), indent=2, ensure_ascii=False)
+    
+    # 2. Build a COMPACT product context to avoid token overflow
     context = ""
 
     # Load Shopify products from Admin API
+    shopify_products = []
     try:
         shopify_products = get_shopify_products_python()
         if shopify_products and len(shopify_products) > 0:
@@ -2567,25 +2582,6 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
             context += "\n"
     except Exception as e:
         print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
-
-    # Load only keyword NAMES to keep context short
-    try:
-        kw_path = os.getenv("KEYWORDS_PATH")
-        if not kw_path:
-            for p in ["/data/keywords.json", "keywords.json", "../keywords.json"]:
-                if os.path.exists(p):
-                    kw_path = p
-                    break
-            if not kw_path:
-                kw_path = os.path.join(BASE_DIR, "keywords.json")
-        if os.path.exists(kw_path):
-            with open(kw_path, "r", encoding="utf-8") as f:
-                kw_map = json.load(f)
-            kw_names = list(kw_map.keys())
-            if kw_names:
-                context += f"Order trigger keywords (customer types one to place an order): {', '.join(kw_names)}\n\n"
-    except Exception as e:
-        print(f"[AIFallback] Error loading keywords: {e}", flush=True)
 
     # Load Instagram automations
     try:
@@ -2609,27 +2605,37 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
 
     prompt = f"""
 You are a helpful customer support agent for our online store.
-Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
+Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below. You also help them place orders by collecting their checkout details.
 
 Customer Details:
 Name: {sender_name}
 Message: "{text}"
+Current Checkout Answers collected so far:
+{current_answers}
 
 Our Product Catalog & Promotions:
 {context}
 
+Your response MUST be a valid JSON object containing exactly three keys:
+1. "reply": A string containing your friendly response to the customer in their language. Do not include any greeting pleasantries or chitchat unless responding to a greeting. Ask politely for any missing ordering details.
+2. "extracted_info": A JSON object containing any new or updated details extracted from the customer's current message:
+   - "name": Customer full name (string or null)
+   - "phone": Customer mobile phone number (string or null)
+   - "address": Customer complete delivery shipping address (string or null)
+   - "pincode": Delivery area pincode (string or null)
+   - "product_title": The exact title of the product they want to order from the catalog list (string or null)
+   - "payment_method": "cod" or "online" (string or null)
+3. "ready_to_order": A boolean (true or false). Set this to true ONLY if you have successfully collected all of: name, phone, address, pincode, product_title, and payment_method.
+
 Instructions:
-1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
+1. Identify the customer's language and reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
 2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
-3. FUZZY PRODUCT MATCHING (very important):
-   - When the customer mentions ANY product name (e.g. "pencil", "printer", "mat"), scan the entire product catalog for the closest matching product — even if it is not an exact keyword match (e.g. "pencil" could match "portable wireless thermal printer" because it prints like a pen).
-   - If you find a related product in the catalog, respond by naming the product, its price, and its link (if any), and ask: "Is this what you were looking for?" — in the customer's language.
-   - If multiple related products are found, list all of them with their prices and links and ask which one they mean.
-4. If the product IS listed exactly: Tell the customer it is "in stock" and provide details.
-5. If no related product is found at all: Politely tell them we don't carry that item and suggest similar available products.
-6. Do NOT answer topics unrelated to products. Politely decline if asked about anything else.
-7. If they express intent to buy, tell them the trigger keyword to start the automated order form (e.g. "To order, please type 'lolcat' to begin your order!").
+3. If they ask about a product, give them the matching catalog details (price, description) and link.
+4. If they say they want to order, check what details are missing (e.g. name, address, payment method) and politely ask for those details in your "reply".
+5. Do NOT answer anything unrelated to our products or ordering.
 """
+
+    ai_msg = None
 
     # Try Groq Llama first
     groq_key = os.getenv("GROQ_API_KEY")
@@ -2644,50 +2650,180 @@ Instructions:
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1000,
-                "temperature": 0.7
+                "temperature": 0.2
             }
             resp = requests.post(url, headers=headers, json=body, timeout=10)
             if resp.status_code == 200:
                 ai_msg = resp.json()["choices"][0]["message"]["content"].strip()
-                if ai_msg:
-                    send_official_wa_message(sender_wa_id, text=ai_msg)
-                    print(f"[AIFallback] Replied using Groq Llama to {sender_name}", flush=True)
-                    return
+                print(f"[AIFallback] Replied using Groq Llama to {sender_name}", flush=True)
         except Exception as e:
             print(f"[AIFallback] Groq Llama failed: {e}", flush=True)
 
-    # Try Gemini fallback
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_2")
-    if gemini_key:
-        try:
-            url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {gemini_key}"
-            }
-            body = {
-                "model": "gemini-2.5-flash",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1000,
-                "temperature": 0.7
-            }
-            resp = requests.post(url, headers=headers, json=body, timeout=10)
-            if resp.status_code == 200:
-                ai_msg = resp.json()["choices"][0]["message"]["content"].strip()
-                if ai_msg:
-                    send_official_wa_message(sender_wa_id, text=ai_msg)
+    # Try Gemini fallback if Groq failed
+    if not ai_msg:
+        gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_2")
+        if gemini_key:
+            try:
+                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {gemini_key}"
+                }
+                body = {
+                    "model": "gemini-2.5-flash",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 1000,
+                    "temperature": 0.2
+                }
+                resp = requests.post(url, headers=headers, json=body, timeout=10)
+                if resp.status_code == 200:
+                    ai_msg = resp.json()["choices"][0]["message"]["content"].strip()
                     print(f"[AIFallback] Replied using Gemini to {sender_name}", flush=True)
-                    return
-        except Exception as e:
-            print(f"[AIFallback] Gemini failed: {e}", flush=True)
+            except Exception as e:
+                print(f"[AIFallback] Gemini failed: {e}", flush=True)
 
-    # Hard fallback
+    if not ai_msg:
+        # Hard fallback
+        try:
+            fallback_msg = "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer."
+            send_official_wa_message(sender_wa_id, text=fallback_msg)
+        except Exception as e:
+            print(f"[AIFallback] Failed to send fallback message: {e}", flush=True)
+        return
+
+    # Parse AI response
+    reply_text = ai_msg
+    extracted = {}
+    ready = False
+
     try:
-        fallback_msg = "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer."
-        send_official_wa_message(sender_wa_id, text=fallback_msg)
-        print(f"[AIFallback] Sent default fallback reply to {sender_name}", flush=True)
-    except Exception as e:
-        print(f"[AIFallback] Failed to send fallback message: {e}", flush=True)
+        clean_res = ai_msg.strip()
+        if clean_res.startswith("```"):
+            lines = clean_res.split("\n")
+            if len(lines) > 2:
+                if "json" in lines[0].lower() or lines[0].strip() == "```":
+                    lines = lines[1:-1]
+                else:
+                    lines = lines[1:]
+            clean_res = "\n".join(lines).strip()
+        
+        res_data = json.loads(clean_res)
+        reply_text = res_data.get("reply", "")
+        extracted = res_data.get("extracted_info") or {}
+        ready = res_data.get("ready_to_order", False)
+    except Exception as parse_err:
+        print(f"[AIFallback] JSON parse error: {parse_err}. Response was: {ai_msg}", flush=True)
+
+    # Update state fields with newly extracted info
+    updated_answers = user_state.get("answers", {})
+    for k, v in extracted.items():
+        if v:
+            updated_answers[k] = str(v)
+            if k == "payment_method":
+                user_state["paymentMethod"] = str(v).lower()
+    
+    user_state["answers"] = updated_answers
+    user_state["updatedAt"] = int(time.time() * 1000)
+
+    # Place order if ready
+    if ready:
+        prod_title = updated_answers.get("product_title")
+        resolved = None
+        if prod_title and shopify_products:
+            prod_title_lower = prod_title.lower().strip()
+            for p in shopify_products:
+                if prod_title_lower in p.get("title", "").lower() or p.get("title", "").lower() in prod_title_lower:
+                    variants = p.get("variants") or []
+                    if variants:
+                        resolved = {
+                            "variant_id": variants[0].get("id"),
+                            "price": variants[0].get("price"),
+                            "title": p.get("title")
+                        }
+                        break
+        
+        if resolved:
+            user_state["answers"]["variant_id"] = str(resolved["variant_id"])
+            user_state["answers"]["price"] = str(resolved["price"])
+            user_state["answers"]["product"] = resolved["title"]
+            user_state["matchedKeywordPattern"] = "ai_chat"
+            
+            pay_method = user_state.get("paymentMethod") or "cod"
+            
+            if pay_method == "online":
+                try:
+                    price = float(resolved["price"])
+                    price_in_paise = int(price * 100)
+                    reference_id = f"ref_{int(time.time())}_{sender_wa_id.split('@')[0]}"
+                    expiry_minutes = 20
+                    expires_at = int(time.time()) + (expiry_minutes * 60)
+                    
+                    qr_data = create_razorpay_qr(price_in_paise, reference_id, sender_wa_id, expires_at)
+                    pl_data = create_razorpay_payment_link(price_in_paise, reference_id, sender_wa_id, expires_at)
+                    
+                    qr_url = qr_data.get("image_url")
+                    pl_url = pl_data.get("short_url")
+                    
+                    # Store payment details
+                    payments = load_payments()
+                    payments.append({
+                        "qr_id": qr_data.get("id"),
+                        "payment_link_id": pl_data.get("id"),
+                        "reference_id": reference_id,
+                        "phone": sender_wa_id,
+                        "amount": price,
+                        "expires_at": expires_at,
+                        "status": "pending",
+                        "answers": user_state.get("answers"),
+                        "sender_name": sender_name,
+                        "matchedKeywordPattern": "ai_chat",
+                        "language": "english"
+                    })
+                    save_payments(payments)
+                    
+                    send_official_wa_message(sender_wa_id, text=reply_text)
+                    time.sleep(1.0)
+                    
+                    # Send Payment Links
+                    send_official_wa_image_url(
+                        to_number=sender_wa_id,
+                        image_url=qr_url,
+                        caption="ഇടപാട് പൂർത്തിയാക്കാൻ ഈ QR കോഡ് സ്കാൻ ചെയ്യുക (Scan this QR code to pay):"
+                    )
+                    time.sleep(1.0)
+                    send_official_wa_message(sender_wa_id, text=f"അല്ലെങ്കിൽ താഴെ കാണുന്ന ലിങ്ക് ക്ലിക്ക് ചെയ്യുക (Or click here to pay): {pl_url}")
+                    
+                    if sender_wa_id in conv_state:
+                        del conv_state[sender_wa_id]
+                        save_conv_state(conv_state)
+                    return
+                except Exception as rz_err:
+                    print(f"[Razorpay AI Error] {rz_err}", flush=True)
+                    send_official_wa_message(sender_wa_id, text="Sorry, we failed to generate the online payment link. Placing your order as Cash on Delivery instead.")
+                    pay_method = "cod"
+            
+            if pay_method == "cod":
+                send_official_wa_message(sender_wa_id, text=reply_text)
+                time.sleep(1.0)
+                try:
+                    create_shopify_order_python(user_state, sender_wa_id, sender_name)
+                except Exception as shop_err:
+                    print(f"[Shopify Error] COD AI checkout failed: {shop_err}", flush=True)
+                if sender_wa_id in conv_state:
+                    del conv_state[sender_wa_id]
+                    save_conv_state(conv_state)
+                return
+        else:
+            send_official_wa_message(sender_wa_id, text="I couldn't match the product you mentioned to our catalog. Could you please specify which product from our catalog you want to order?")
+            return
+    else:
+        conv_state[sender_wa_id] = user_state
+        save_conv_state(conv_state)
+        send_official_wa_message(sender_wa_id, text=reply_text)
+
+
+def dummy_end_helper_marker():
+    pass
 
 
 def handle_official_wa_message(msg, contact):
@@ -7369,7 +7505,54 @@ def razorpay_webhook():
     except Exception as e:
         print(f"[Razorpay Webhook] Error saving order to database: {e}", flush=True)
         
-    return "OK", 200
+@app.route("/api/razorpay/create", methods=["POST"])
+def api_razorpay_create():
+    data = request.json or {}
+    sender_wa_id = data.get("sender_wa_id")
+    sender_name = data.get("sender_name", "WhatsApp User")
+    price = data.get("price")
+    answers = data.get("answers", {})
+    
+    if not sender_wa_id or not price:
+        return jsonify({"ok": False, "error": "Missing required fields"}), 400
+        
+    try:
+        price_val = float(price)
+        price_in_paise = int(price_val * 100)
+        reference_id = f"ref_{int(time.time())}_{sender_wa_id.split('@')[0]}"
+        expiry_minutes = 20
+        expires_at = int(time.time()) + (expiry_minutes * 60)
+        
+        qr_data = create_razorpay_qr(price_in_paise, reference_id, sender_wa_id, expires_at)
+        pl_data = create_razorpay_payment_link(price_in_paise, reference_id, sender_wa_id, expires_at)
+        
+        qr_url = qr_data.get("image_url")
+        pl_url = pl_data.get("short_url")
+        
+        payments = load_payments()
+        payments.append({
+            "qr_id": qr_data.get("id"),
+            "payment_link_id": pl_data.get("id"),
+            "reference_id": reference_id,
+            "phone": sender_wa_id,
+            "amount": price_val,
+            "expires_at": expires_at,
+            "status": "pending",
+            "answers": answers,
+            "sender_name": sender_name,
+            "matchedKeywordPattern": "ai_chat",
+            "language": "english"
+        })
+        save_payments(payments)
+        
+        return jsonify({
+            "ok": True,
+            "qr_url": qr_url,
+            "payment_link_url": pl_url
+        })
+    except Exception as e:
+        print(f"[API Razorpay Create Error] {e}", flush=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/webhook", methods=["GET"])

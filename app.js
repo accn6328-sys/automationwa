@@ -997,35 +997,53 @@ async function handleAIFallback(sock, senderJid, text, senderName) {
         // Quietly fail
     }
 
-    // Set typing state
-    try {
-        await sock.presenceSubscribe(senderJid);
-        await sock.sendPresenceUpdate('composing', senderJid);
-    } catch (e) {}
+    // Load conversation state
+    let convState = loadConvState();
+    let userState = convState[senderJid];
+    if (!userState) {
+        userState = {
+            step: "ai_chat",
+            answers: {},
+            paymentMethod: null,
+            matchedKeywordPattern: null,
+            updatedAt: Date.now()
+        };
+    }
+    const currentAnswers = JSON.stringify(userState.answers, null, 2);
 
     const prompt = `
 You are a helpful customer support agent for our online store.
-Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
+Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below. You also help them place orders by collecting their checkout details.
 
 Customer Details:
 Name: ${senderName}
 Message: "${text}"
+Current Checkout Answers collected so far:
+${currentAnswers}
 
 Our Product Catalog & Promotions:
 ${context}
 
+Your response MUST be a valid JSON object containing exactly three keys:
+1. "reply": A string containing your friendly response to the customer in their language. Do not include any greeting pleasantries or chitchat unless responding to a greeting. Ask politely for any missing ordering details.
+2. "extracted_info": A JSON object containing any new or updated details extracted from the customer's current message:
+   - "name": Customer full name (string or null)
+   - "phone": Customer mobile phone number (string or null)
+   - "address": Customer complete delivery shipping address (string or null)
+   - "pincode": Delivery area pincode (string or null)
+   - "product_title": The exact title of the product they want to order from the catalog list (string or null)
+   - "payment_method": "cod" or "online" (string or null)
+3. "ready_to_order": A boolean (true or false). Set this to true ONLY if you have successfully collected all of: name, phone, address, pincode, product_title, and payment_method.
+
 Instructions:
-1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
+1. Identify the customer's language and reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
 2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
-3. FUZZY PRODUCT MATCHING (very important):
-   - When the customer mentions ANY product name (e.g. "pencil", "printer", "mat"), scan the entire product catalog for the closest matching product — even if it is not an exact keyword match (e.g. "pencil" could match "portable wireless thermal printer" because it prints like a pen).
-   - If you find a related product in the catalog, respond by naming the product, its price, and its link (if any), and ask: "Is this what you were looking for?" — in the customer's language.
-   - If multiple related products are found, list all of them with their prices and links and ask which one they mean.
-4. If the product IS listed exactly: Tell the customer it is "in stock" and provide details.
-5. If no related product is found at all: Politely tell them we don't carry that item and suggest similar available products.
-6. Do NOT answer topics unrelated to products. Politely decline if asked about anything else.
-7. If they express intent to buy, tell them the trigger keyword to start the automated order form (e.g. "To order, please type 'lolcat' to begin your order!").
+3. If they ask about a product, give them the matching catalog details (price, description) and link.
+4. If they say they want to order, check what details are missing (e.g. name, address, payment method) and politely ask for those details in your "reply".
+5. Do NOT answer anything unrelated to our products or ordering.
 `;
+
+    let aiMsg = null;
 
     // Try Groq Llama first
     const groqKey = process.env.GROQ_API_KEY;
@@ -1041,21 +1059,14 @@ Instructions:
                     model: "llama-3.3-70b-versatile",
                     messages: [{ role: "user", content: prompt }],
                     max_tokens: 1000,
-                    temperature: 0.7
+                    temperature: 0.2
                 }),
                 signal: AbortSignal.timeout(10000)
             });
             if (resp.ok) {
                 const data = await resp.json();
-                const aiMsg = data.choices[0].message.content.trim();
-                if (aiMsg) {
-                    try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
-                    await sock.sendMessage(senderJid, { text: aiMsg });
-                    addLog(`[AIFallback] Replied using Groq Llama 8B to ${senderName}.`);
-                    return;
-                }
-            } else {
-                addLog(`[AIFallback] Groq Llama returned status ${resp.status}: ${await resp.text()}`);
+                aiMsg = data.choices[0].message.content.trim();
+                addLog(`[AIFallback] Replied using Groq Llama 70B to ${senderName}.`);
             }
         } catch (err) {
             addLog(`[AIFallback] Groq Llama failed: ${err.message}`);
@@ -1063,49 +1074,184 @@ Instructions:
     }
 
     // Try Gemini fallback
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY_2;
-    if (geminiKey) {
-        try {
-            const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${geminiKey}`
-                },
-                body: JSON.stringify({
-                    model: "gemini-2.5-flash",
-                    messages: [{ role: "user", content: prompt }],
-                    max_tokens: 1000,
-                    temperature: 0.7
-                }),
-                signal: AbortSignal.timeout(10000)
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                const aiMsg = data.choices[0].message.content.trim();
-                if (aiMsg) {
-                    try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
-                    await sock.sendMessage(senderJid, { text: aiMsg });
+    if (!aiMsg) {
+        const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY_2;
+        if (geminiKey) {
+            try {
+                const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${geminiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: "gemini-2.5-flash",
+                        messages: [{ role: "user", content: prompt }],
+                        max_tokens: 1000,
+                        temperature: 0.2
+                    }),
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    aiMsg = data.choices[0].message.content.trim();
                     addLog(`[AIFallback] Replied using Gemini Flash to ${senderName}.`);
-                    return;
                 }
-            } else {
-                addLog(`[AIFallback] Gemini returned status ${resp.status}: ${await resp.text()}`);
+            } catch (err) {
+                addLog(`[AIFallback] Gemini failed: ${err.message}`);
             }
-        } catch (err) {
-            addLog(`[AIFallback] Gemini failed: ${err.message}`);
         }
     }
 
-    // Hard fallback if both AI APIs fail
+    if (!aiMsg) {
+        // Hard fallback if both AI APIs fail
+        try {
+            try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+            await sock.sendMessage(senderJid, { text: "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer." });
+            addLog(`[AIFallback] Sent default fallback reply to ${senderName}.`);
+        } catch (e) {
+            addLog(`[AIFallback] Failed to send fallback message: ${e.message}`);
+        }
+        return;
+    }
+
+    // Parse response
+    let replyText = aiMsg;
+    let extracted = {};
+    let ready = false;
+
     try {
+        let cleanRes = aiMsg.trim();
+        if (cleanRes.startsWith("```")) {
+            let lines = cleanRes.split("\n");
+            if (lines.length > 2) {
+                if (lines[0].toLowerCase().includes("json") || lines[0].trim() === "```") {
+                    lines = lines.slice(1, -1);
+                } else {
+                    lines = lines.slice(1);
+                }
+            }
+            cleanRes = lines.join("\n").trim();
+        }
+        const resData = JSON.parse(cleanRes);
+        replyText = resData.reply || "";
+        extracted = resData.extracted_info || {};
+        ready = resData.ready_to_order || false;
+    } catch (parseErr) {
+        addLog(`[AIFallback] JSON parse error: ${parseErr.message}. Raw: ${aiMsg}`);
+    }
+
+    // Merge answers
+    const updatedAnswers = userState.answers || {};
+    for (const [k, v] of Object.entries(extracted)) {
+        if (v) {
+            updatedAnswers[k] = String(v);
+            if (k === "payment_method") {
+                userState.paymentMethod = String(v).toLowerCase();
+            }
+        }
+    }
+    userState.answers = updatedAnswers;
+    userState.updatedAt = Date.now();
+
+    if (ready) {
+        // Find product title from live catalog
+        const prodTitle = updatedAnswers.product_title;
+        let resolved = null;
+        try {
+            const shopifyProducts = await getShopifyProducts();
+            if (prodTitle && shopifyProducts) {
+                const prodTitleLower = prodTitle.toLowerCase().trim();
+                for (const p of shopifyProducts) {
+                    if (prodTitleLower.includes(p.title.toLowerCase()) || p.title.toLowerCase().includes(prodTitleLower)) {
+                        const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
+                        resolved = {
+                            variant_id: p.variants[0].id,
+                            price: price,
+                            title: p.title
+                        };
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            addLog(`[AIFallback] Resolve products failed: ${e.message}`);
+        }
+
+        if (resolved) {
+            userState.answers.variant_id = String(resolved.variant_id);
+            userState.answers.price = String(resolved.price);
+            userState.answers.product = resolved.title;
+            userState.matchedKeywordPattern = "ai_chat";
+
+            const payMethod = userState.paymentMethod || "cod";
+
+            if (payMethod === "online") {
+                try {
+                    // Query Flask payment API
+                    const paymentResp = await fetch(`http://127.0.0.1:${FB_BOT_PORT}/api/razorpay/create`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            sender_wa_id: senderJid,
+                            sender_name: senderName,
+                            price: resolved.price,
+                            answers: userState.answers
+                        })
+                    });
+                    if (paymentResp.ok) {
+                        const payData = await paymentResp.json();
+                        if (payData.ok) {
+                            try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+                            
+                            // Send AI reply
+                            await sock.sendMessage(senderJid, { text: replyText });
+                            
+                            // Send QR
+                            await sock.sendMessage(senderJid, {
+                                image: { url: payData.qr_url },
+                                caption: "ഇടപാട് പൂർത്തിയാക്കാൻ ഈ QR കോഡ് സ്കാൻ ചെയ്യുക (Scan this QR code to pay):"
+                            });
+                            
+                            // Send Payment link
+                            await sock.sendMessage(senderJid, { text: `അല്ലെങ്കിൽ താഴെ കാണുന്ന ലിങ്ക് ക്ലിക്ക് ചെയ്യുക (Or click here to pay): ${payData.payment_link_url}` });
+
+                            // Clear state
+                            delete convState[senderJid];
+                            saveConvState(convState);
+                            return;
+                        }
+                    }
+                } catch (payErr) {
+                    addLog(`[AIFallback] Online payment link query failed: ${payErr.message}`);
+                }
+                // Fallback to COD if payment generation fails
+                await sock.sendMessage(senderJid, { text: "Sorry, we failed to generate the online payment link. Placing your order as Cash on Delivery instead." });
+            }
+
+            // Cash on Delivery
+            try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+            await sock.sendMessage(senderJid, { text: replyText });
+            try {
+                await createShopifyOrderForState(userState, senderJid, senderName, sock);
+            } catch (shopErr) {
+                addLog(`[Shopify Error] AI COD order failed: ${shopErr.message}`);
+            }
+
+            delete convState[senderJid];
+            saveConvState(convState);
+        } else {
+            try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
+            await sock.sendMessage(senderJid, { text: "I couldn't match the product you mentioned to our catalog. Could you please specify which product from our catalog you want to order?" });
+        }
+    } else {
+        convState[senderJid] = userState;
+        saveConvState(convState);
         try { await sock.sendPresenceUpdate('paused', senderJid); } catch(e){}
-        await sock.sendMessage(senderJid, { text: "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer." });
-        addLog(`[AIFallback] Sent default fallback reply to ${senderName}.`);
-    } catch (e) {
-        addLog(`[AIFallback] Failed to send fallback message: ${e.message}`);
+        await sock.sendMessage(senderJid, { text: replyText });
     }
 }
+
 
 // Server setup
 const app = express();
