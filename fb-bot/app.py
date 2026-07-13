@@ -2640,7 +2640,7 @@ Instructions:
             body = {
                 "model": "llama-3-8b-8192",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 300,
+                "max_tokens": 1000,
                 "temperature": 0.7
             }
             resp = requests.post(url, headers=headers, json=body, timeout=10)
@@ -2665,7 +2665,7 @@ Instructions:
             body = {
                 "model": "gemini-2.5-flash",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 300,
+                "max_tokens": 1000,
                 "temperature": 0.7
             }
             resp = requests.post(url, headers=headers, json=body, timeout=10)

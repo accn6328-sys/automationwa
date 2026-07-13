@@ -1037,7 +1037,7 @@ Instructions:
                 body: JSON.stringify({
                     model: "llama-3-8b-8192",
                     messages: [{ role: "user", content: prompt }],
-                    max_tokens: 300,
+                    max_tokens: 1000,
                     temperature: 0.7
                 }),
                 signal: AbortSignal.timeout(10000)
@@ -1072,7 +1072,7 @@ Instructions:
                 body: JSON.stringify({
                     model: "gemini-2.5-flash",
                     messages: [{ role: "user", content: prompt }],
-                    max_tokens: 300,
+                    max_tokens: 1000,
                     temperature: 0.7
                 }),
                 signal: AbortSignal.timeout(10000)
