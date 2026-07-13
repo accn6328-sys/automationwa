@@ -861,6 +861,61 @@ function startFBBot() {
     fbBotProcess = fbProc;
 }
 
+let reposterProcess = null;
+function startReposterDaemon() {
+    const reposterPath = path.join(__dirname, 'reposter_daemon.py');
+    if (!fs.existsSync(reposterPath)) {
+        console.log('[Reposter Bot] reposter_daemon.py not found — skipping startup.');
+        return;
+    }
+
+    const pythonBin = findPythonBinary();
+    console.log(`[Reposter Bot] Using python executable: ${pythonBin}`);
+    addLog(`[Reposter Bot] Starting Instagram-to-YouTube reposter daemon...`);
+    
+    const repProc = spawn(pythonBin, ['reposter_daemon.py'], {
+        stdio: 'pipe',
+        cwd: __dirname,
+        env: { ...process.env }
+    });
+    
+    let repErrorBuffer = [];
+    
+    repProc.stdout.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.log(`[Reposter Bot] ${text}`);
+            addLog(`[Reposter Bot] ${text}`);
+        }
+    });
+    
+    repProc.stderr.on('data', d => {
+        const text = d.toString().trim();
+        if (text) {
+            console.error(`[Reposter Bot] ${text}`);
+            repErrorBuffer.push(text);
+            if (repErrorBuffer.length > 30) repErrorBuffer.shift();
+        }
+    });
+    
+    repProc.on('close', code => {
+        addLog(`❌ [Reposter Bot] Subprocess exited with code ${code}.`);
+        if (repErrorBuffer.length > 0) {
+            addLog(`❌ [Reposter Bot] Crash logs:`);
+            repErrorBuffer.forEach(line => addLog(`   👉 ${line}`));
+        }
+        addLog(`[Reposter Bot] Restarting in 10 seconds...`);
+        reposterProcess = null;
+        setTimeout(startReposterDaemon, 10000);
+    });
+    
+    repProc.on('error', err => {
+        addLog(`❌ [Reposter Bot] Spawn error: ${err.message}`);
+    });
+    
+    reposterProcess = repProc;
+}
+
 // Server setup
 const app = express();
 const server = http.createServer(app);
@@ -2100,5 +2155,6 @@ server.listen(EXPRESS_PORT, () => {
     connectToWhatsApp();
     startYTBot();
     startFBBot();
+    startReposterDaemon();
 });
 
