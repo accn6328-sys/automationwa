@@ -1946,6 +1946,9 @@ async function connectToWhatsApp() {
                                 : ruleData;
                                 
                             const { text: replyText, image: replyImage, voice: replyVoice } = rule;
+                            if (rule.sendCatalog) {
+                                addLog(`⚠️ [Baileys Mode] Pattern "${kwPattern}" triggered a Catalog rule, but Meta Catalog Messages are only supported in Official Cloud API mode. Falling back to text response.`);
+                            }
 
                             const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 

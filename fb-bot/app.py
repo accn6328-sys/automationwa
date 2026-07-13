@@ -2127,7 +2127,9 @@ LOCALIZED_PROMPTS = {
         "pincode_prompt": "What is your Pin code? 📮",
         "cod_btn": "Cash on Delivery",
         "online_btn": "Online Payment",
-        "cancel_btn": "Cancel"
+        "cancel_btn": "Cancel",
+        "order_btn": "Order Now",
+        "order_now_prompt": "Click below to start your order:"
     },
     "tamil": {
         "choose_lang": "தயவுசெய்து உங்கள் மொழியைத் தேர்ந்தெடுக்கவும்:",
@@ -2143,7 +2145,9 @@ LOCALIZED_PROMPTS = {
         "pincode_prompt": "உங்கள் பின்கோடு என்ன? 📮",
         "cod_btn": "கேஷ் ஆன் டெலிவரி",
         "online_btn": "ஆன்லைன் கட்டணம்",
-        "cancel_btn": "ரத்துசெய்"
+        "cancel_btn": "ரத்துசெய்",
+        "order_btn": "ஆர்டர் செய்க",
+        "order_now_prompt": "உங்கள் ஆர்டரைத் தொடங்க கீழே கிளிக் செய்யவும்:"
     },
     "malayalam": {
         "choose_lang": "നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക:",
@@ -2159,7 +2163,9 @@ LOCALIZED_PROMPTS = {
         "pincode_prompt": "പിൻകോഡ് (Pin code) എത്രയാണ്? 📮",
         "cod_btn": "ക്യാഷ് ഓൺ ഡെലിവറി (COD)",
         "online_btn": "ഓൺലൈൻ പേയ്മെന്റ്",
-        "cancel_btn": "ക്യാൻസൽ ചെയ്യുക"
+        "cancel_btn": "ക്യാൻസൽ ചെയ്യുക",
+        "order_btn": "ഓർഡർ ചെയ്യുക",
+        "order_now_prompt": "ഓർഡർ ചെയ്യാൻ താഴെ ക്ലിക്ക് ചെയ്യുക:"
     },
     "hindi": {
         "choose_lang": "कृपया अपनी पसंदीदा भाषा चुनें:",
@@ -2306,6 +2312,35 @@ def send_official_wa_list(to_number, header, body, button_text, rows):
             "type": "text",
             "text": header
         }
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    r.raise_for_status()
+
+def send_official_wa_catalog(to_number, body_text="Check out our catalog!"):
+    token = os.getenv("PAGE_ACCESS_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    clean_to = re.sub(r"\D", "", to_number)
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_to,
+        "type": "interactive",
+        "interactive": {
+            "type": "catalog_message",
+            "body": {
+                "text": body_text
+            },
+            "action": {
+                "name": "catalog_message"
+            }
+        }
+    }
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
 
@@ -2581,18 +2616,47 @@ def handle_official_wa_message(msg, contact):
                 
             translated_product_text = translate_preserving_links(reply_text, selected_lang)
             send_official_wa_message(sender_wa_id, text=translated_product_text)
+            
+            # Send Order Now button after 3 seconds
+            time.sleep(3.0)
+            order_prompts = LOCALIZED_PROMPTS.get(selected_lang, LOCALIZED_PROMPTS["english"])
+            order_btn_text = order_prompts.get("order_btn", "Order Now")
+            buttons = [
+                {"id": "order_now", "title": order_btn_text}
+            ]
+            order_prompt = order_prompts.get("order_now_prompt", "Click below to start your order:")
+            try:
+                send_official_wa_interactive_buttons(sender_wa_id, body_text=order_prompt, buttons=buttons)
+            except Exception as e:
+                print(f"Failed to send WhatsApp interactive Order Now button: {e}. Falling back to text prompt.", flush=True)
+                send_official_wa_message(sender_wa_id, text=f"{order_prompt}\n\nType *Order Now* to proceed.")
             return
 
         # STEP: Awaiting Second Message (to show payment choice)
         if user_state.get("step") == "awaiting_second_message":
-            user_state["step"] = "awaiting_payment_choice"
-            user_state["updatedAt"] = int(time.time() * 1000)
-            conv_state[sender_wa_id] = user_state
-            save_conv_state(conv_state)
-            
-            time.sleep(1.2)
-            send_payment_choice_message(sender_wa_id, user_state.get("language", "english"))
-            return
+            if text.strip().lower() == "order_now":
+                user_state["step"] = "awaiting_payment_choice"
+                user_state["updatedAt"] = int(time.time() * 1000)
+                conv_state[sender_wa_id] = user_state
+                save_conv_state(conv_state)
+                
+                time.sleep(1.2)
+                send_payment_choice_message(sender_wa_id, user_state.get("language", "english"))
+                return
+            else:
+                lang = user_state.get("language", "english")
+                order_prompts = LOCALIZED_PROMPTS.get(lang, LOCALIZED_PROMPTS["english"])
+                order_btn_text = order_prompts.get("order_btn", "Order Now")
+                buttons = [
+                    {"id": "order_now", "title": order_btn_text}
+                ]
+                order_prompt = order_prompts.get("order_now_prompt", "Click below to start your order:")
+                try:
+                    send_official_wa_interactive_buttons(sender_wa_id, body_text=order_prompt, buttons=buttons)
+                except Exception as e:
+                    print(f"Failed to send WhatsApp interactive Order Now button: {e}. Falling back to text prompt.", flush=True)
+                    send_official_wa_message(sender_wa_id, text=f"{order_prompt}\n\nType *Order Now* to proceed.")
+                return
 
         # STEP: Awaiting Payment Choice
         if user_state.get("step") == "awaiting_payment_choice":
@@ -2899,6 +2963,8 @@ def handle_official_wa_message(msg, contact):
             reply_text = ""
             reply_image = None
             reply_voice = None
+            use_order_flow = False
+            send_catalog = False
             if isinstance(rule_data, str):
                 reply_text = rule_data
             elif isinstance(rule_data, dict):
@@ -2906,8 +2972,7 @@ def handle_official_wa_message(msg, contact):
                 reply_image = rule_data.get("image")
                 reply_voice = rule_data.get("voice")
                 use_order_flow = rule_data.get("useOrderFlow", False)
-            else:
-                use_order_flow = False
+                send_catalog = rule_data.get("sendCatalog", False)
                 
             try:
                 if use_order_flow and order_flow_config.get("enabled", True):
@@ -2923,6 +2988,18 @@ def handle_official_wa_message(msg, contact):
                     save_conv_state(conv_state)
                     print(f"Initialized order flow in awaiting_language_selection state for {sender_name}.", flush=True)
                     send_language_selection(sender_wa_id)
+                elif send_catalog:
+                    conv_state = load_conv_state()
+                    user_state = conv_state.get(sender_wa_id) if conv_state else None
+                    lang = user_state.get("language") if user_state else "english"
+                    body = reply_text or "Check out our catalog!"
+                    if lang and lang != "english":
+                        body = translate_preserving_links(body, lang)
+                    send_official_wa_catalog(
+                        to_number=sender_wa_id,
+                        body_text=body
+                    )
+                    print(f"[Official WhatsApp Catalog Sent] To: {sender_wa_id}", flush=True)
                 else:
                     send_official_wa_message(
                         to_number=sender_wa_id,
