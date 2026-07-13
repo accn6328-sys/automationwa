@@ -2528,6 +2528,128 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons):
         return send_official_wa_message(to_number, text=body_text)
 
 
+def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
+    print(f"[AIFallback] Triggering WhatsApp AI Fallback for {sender_name} ({sender_wa_id})...", flush=True)
+    
+    # 1. Load context
+    context = "Available Products and Catalog Rules:\n"
+    try:
+        kw_path = os.getenv("KEYWORDS_PATH")
+        if not kw_path:
+            for p in ["/data/keywords.json", "keywords.json", "../keywords.json"]:
+                if os.path.exists(p):
+                    kw_path = p
+                    break
+            if not kw_path:
+                kw_path = os.path.join(BASE_DIR, "keywords.json")
+        if os.path.exists(kw_path):
+            with open(kw_path, "r", encoding="utf-8") as f:
+                kw_map = json.load(f)
+            for kw, rule in kw_map.items():
+                rule_text = rule.get("text", "") if isinstance(rule, dict) else rule
+                context += f"- Trigger Keyword: \"{kw}\"\n  Details/Reply:\n{rule_text}\n\n"
+    except Exception as e:
+        print(f"[AIFallback] Error loading products context: {e}", flush=True)
+
+    # Load Instagram automations from the SQLite database
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, reply, dm_message, link_url, active FROM ig_automations")
+        autos = cursor.fetchall()
+        if autos:
+            context += "Instagram Promotions / Automations:\n"
+            for auto in autos:
+                if auto["active"]:
+                    context += f"- Promotion Name: \"{auto['name']}\"\n"
+                    if auto["reply"]:
+                        context += f"  Comments Reply: \"{auto['reply']}\"\n"
+                    if auto["dm_message"]:
+                        context += f"  DM Reply: \"{auto['dm_message']}\"\n"
+                    if auto["link_url"]:
+                        context += f"  Product Link: \"{auto['link_url']}\"\n"
+                    context += "\n"
+        conn.close()
+    except Exception as e:
+        print(f"[AIFallback] Error querying db for automations: {e}", flush=True)
+
+    prompt = f"""
+You are a helpful customer support agent for our online store.
+Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
+
+Customer Details:
+Name: {sender_name}
+Message: "{text}"
+
+Our Product Catalog & Promotions:
+{context}
+
+Instructions:
+1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
+2. Be friendly, polite, and extremely concise (maximum 2-3 sentences).
+3. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
+4. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
+"""
+
+    # Try Groq Llama first
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {groq_key}"
+            }
+            body = {
+                "model": "llama-3-8b-8192",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+                "temperature": 0.7
+            }
+            resp = requests.post(url, headers=headers, json=body, timeout=10)
+            if resp.status_code == 200:
+                ai_msg = resp.json()["choices"][0]["message"]["content"].strip()
+                if ai_msg:
+                    send_official_wa_message(sender_wa_id, text=ai_msg)
+                    print(f"[AIFallback] Replied using Groq Llama to {sender_name}", flush=True)
+                    return
+        except Exception as e:
+            print(f"[AIFallback] Groq Llama failed: {e}", flush=True)
+
+    # Try Gemini fallback
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_2")
+    if gemini_key:
+        try:
+            url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {gemini_key}"
+            }
+            body = {
+                "model": "gemini-2.5-flash",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+                "temperature": 0.7
+            }
+            resp = requests.post(url, headers=headers, json=body, timeout=10)
+            if resp.status_code == 200:
+                ai_msg = resp.json()["choices"][0]["message"]["content"].strip()
+                if ai_msg:
+                    send_official_wa_message(sender_wa_id, text=ai_msg)
+                    print(f"[AIFallback] Replied using Gemini to {sender_name}", flush=True)
+                    return
+        except Exception as e:
+            print(f"[AIFallback] Gemini failed: {e}", flush=True)
+
+    # Hard fallback
+    try:
+        fallback_msg = "Thanks for messaging us! Our support team will get back to you shortly. You can also type 'lolcat' to view our portable printer."
+        send_official_wa_message(sender_wa_id, text=fallback_msg)
+        print(f"[AIFallback] Sent default fallback reply to {sender_name}", flush=True)
+    except Exception as e:
+        print(f"[AIFallback] Failed to send fallback message: {e}", flush=True)
+
+
 def handle_official_wa_message(msg, contact):
     sender_wa_id = msg.get("from")
     sender_name = contact.get("profile", {}).get("name", "WhatsApp User")
@@ -2950,6 +3072,7 @@ def handle_official_wa_message(msg, contact):
         return
         
     clean_text = text.lower().strip()
+    matched = False
     for kw_pattern, rule_data in kw_map.items():
         keywords = [k.strip().lower() for k in kw_pattern.split(",") if k.strip()]
         is_match = False
@@ -3020,11 +3143,15 @@ def handle_official_wa_message(msg, contact):
                         image_base64=reply_image,
                         voice_base64=reply_voice
                     )
-                    print(f"[Official WhatsApp Sent] To: {sender_wa_id}", flush=True)
-                    
+                             matched = True
+                             break
             except Exception as err:
                 print(f"Failed to send official WhatsApp reply: {err}", flush=True)
+            matched = True
             break
+            
+    if not matched:
+        handle_wa_ai_fallback(sender_wa_id, text, sender_name)
 
 
 def reply_to_ig_comment(comment_id, message):
