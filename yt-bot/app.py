@@ -299,6 +299,17 @@ def find_client_secrets_file() -> str:
 
 
 def get_youtube_client():
+    # Seed token.json from env var if file is missing (Railway deployment)
+    if not os.path.exists(TOKEN_FILE):
+        yt_token_env = os.environ.get("YOUTUBE_TOKEN_JSON")
+        if yt_token_env:
+            try:
+                os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
+                with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+                    f.write(yt_token_env)
+                log("INFO", "Seeded token.json from YOUTUBE_TOKEN_JSON env var.")
+            except Exception as seed_err:
+                log("WARNING", f"Failed to seed token.json from env: {seed_err}")
     if not os.path.exists(TOKEN_FILE):
         return None
     try:
