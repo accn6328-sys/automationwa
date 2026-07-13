@@ -917,23 +917,10 @@ function startReposterDaemon() {
 }
 
   async function getShopifyProducts() {
-    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
-    let storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
-    if (!adminToken || !storeDomain) {
-        return [];
-    }
-    let cleanDomain = storeDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (!cleanDomain.endsWith(".myshopify.com") && !cleanDomain.includes(".")) {
-        cleanDomain = `${cleanDomain}.myshopify.com`;
-    }
+    // Use the public storefront JSON endpoint — no API token required!
     try {
-        const url = `https://${cleanDomain}/admin/api/2026-01/products.json?limit=50&fields=title,handle,variants,status`;
-        const response = await fetch(url, {
-            headers: {
-                "X-Shopify-Access-Token": adminToken
-            },
-            signal: AbortSignal.timeout(6000)
-        });
+        const url = `https://www.radikikk.shop/collections/all/products.json?limit=250`;
+        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
         if (response.ok) {
             const data = await response.json();
             return data.products || [];
@@ -947,36 +934,35 @@ function startReposterDaemon() {
 async function handleAIFallback(sock, senderJid, text, senderName) {
     addLog(`[AIFallback] Processing AI response for ${senderName}...`);
     
-    // 1. Load context
-    let context = "Available Products and Catalog Rules:\n";
-    try {
-        const keywords = loadKeywords();
-        for (const [kw, rule] of Object.entries(keywords)) {
-            context += `- Trigger Keyword: "${kw}"\n`;
-            context += `  Details/Reply:\n${rule.text || rule}\n\n`;
-        }
-    } catch (e) {
-        addLog(`[AIFallback] Error loading products context: ${e.message}`);
-    }
+    // 1. Build a COMPACT product context to avoid token overflow
+    let context = "";
 
-    // Load Shopify products dynamically
+    // Load Shopify products from public storefront (no auth needed)
     try {
         const shopifyProducts = await getShopifyProducts();
         if (shopifyProducts && shopifyProducts.length > 0) {
-            context += "Shopify Store Products:\n";
+            context += "Store Products (from www.radikikk.shop/collections/all):\n";
             shopifyProducts.forEach(p => {
-                if (p.status === "active") {
-                    const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
-                    const handle = p.handle || "";
-                    const storeUrl = process.env.SHOPIFY_STORE_DOMAIN
-                        ? `https://${process.env.SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, '').replace(/\/$/, '')}/products/${handle}`
-                        : "";
-                    context += `- Product Title: "${p.title}"\n  Status: In Stock / Listed\n  Price: ₹${price}\n  Link: ${storeUrl}\n\n`;
-                }
+                const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
+                const handle = p.handle || "";
+                const storeUrl = `https://www.radikikk.shop/products/${handle}`;
+                context += `- "${p.title}" | Price: ₹${price} | Link: ${storeUrl}\n`;
             });
+            context += "\n";
         }
     } catch (e) {
         addLog(`[AIFallback] Error loading Shopify products context: ${e.message}`);
+    }
+
+    // Load only keyword NAMES (not full reply texts) to keep context short
+    try {
+        const keywords = loadKeywords();
+        const kwNames = Object.keys(keywords);
+        if (kwNames.length > 0) {
+            context += `Order trigger keywords (customer types one of these to place an order): ${kwNames.join(", ")}\n\n`;
+        }
+    } catch (e) {
+        addLog(`[AIFallback] Error loading keywords: ${e.message}`);
     }
 
     // Load Instagram automations from local Flask API if running
@@ -985,16 +971,15 @@ async function handleAIFallback(sock, senderJid, text, senderName) {
         if (response.ok) {
             const autos = await response.json();
             if (autos && autos.length > 0) {
-                context += "Instagram Promotions / Automations:\n";
+                context += "Instagram Promotions:\n";
                 for (const auto of autos) {
                     if (auto.active) {
-                        context += `- Promotion Name: "${auto.name}"\n`;
-                        if (auto.reply) context += `  Comments Reply: "${auto.reply}"\n`;
-                        if (auto.dm_message) context += `  DM Reply: "${auto.dm_message}"\n`;
-                        if (auto.link_url) context += `  Product Link: "${auto.link_url}"\n`;
+                        context += `- ${auto.name}`;
+                        if (auto.link_url) context += ` | Link: ${auto.link_url}`;
                         context += "\n";
                     }
                 }
+                context += "\n";
             }
         }
     } catch (e) {
@@ -1042,7 +1027,7 @@ Instructions:
                     "Authorization": `Bearer ${groqKey}`
                 },
                 body: JSON.stringify({
-                    model: "llama-3-8b-8192",
+                    model: "llama-3.3-70b-versatile",
                     messages: [{ role: "user", content: prompt }],
                     max_tokens: 1000,
                     temperature: 0.7

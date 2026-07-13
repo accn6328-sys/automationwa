@@ -2529,19 +2529,10 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons):
 
 
 def get_shopify_products_python():
-    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
-    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
-    if not admin_token or not store_domain:
-        return []
-    clean_domain = store_domain.strip().replace("https://", "").replace("http://", "").split("/")[0]
-    if not clean_domain.endswith(".myshopify.com") and "." not in clean_domain:
-        clean_domain = f"{clean_domain}.myshopify.com"
-    url = f"https://{clean_domain}/admin/api/2026-01/products.json?limit=50&fields=title,handle,variants,status"
-    headers = {
-        "X-Shopify-Access-Token": admin_token
-    }
+    # Use public storefront JSON endpoint — no API token required!
     try:
-        r = requests.get(url, headers=headers, timeout=8)
+        url = "https://www.radikikk.shop/collections/all/products.json?limit=250"
+        r = requests.get(url, timeout=8)
         if r.status_code == 200:
             return r.json().get("products") or []
     except Exception as e:
@@ -2552,8 +2543,25 @@ def get_shopify_products_python():
 def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     print(f"[AIFallback] Triggering WhatsApp AI Fallback for {sender_name} ({sender_wa_id})...", flush=True)
     
-    # 1. Load context
-    context = "Available Products and Catalog Rules:\n"
+    # 1. Build a COMPACT context to avoid token overflow causing truncated sentences
+    context = ""
+
+    # Load Shopify products from public storefront (no auth required)
+    try:
+        shopify_products = get_shopify_products_python()
+        if shopify_products and len(shopify_products) > 0:
+            context += "Store Products (from www.radikikk.shop/collections/all):\n"
+            for p in shopify_products:
+                variants = p.get("variants") or []
+                price = variants[0].get("price") if variants else "N/A"
+                handle = p.get("handle", "")
+                product_url = f"https://www.radikikk.shop/products/{handle}"
+                context += f"- \"{p.get('title')}\" | Price: ₹{price} | Link: {product_url}\n"
+            context += "\n"
+    except Exception as e:
+        print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
+
+    # Load only keyword NAMES to keep context short
     try:
         kw_path = os.getenv("KEYWORDS_PATH")
         if not kw_path:
@@ -2566,46 +2574,28 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
         if os.path.exists(kw_path):
             with open(kw_path, "r", encoding="utf-8") as f:
                 kw_map = json.load(f)
-            for kw, rule in kw_map.items():
-                rule_text = rule.get("text", "") if isinstance(rule, dict) else rule
-                context += f"- Trigger Keyword: \"{kw}\"\n  Details/Reply:\n{rule_text}\n\n"
+            kw_names = list(kw_map.keys())
+            if kw_names:
+                context += f"Order trigger keywords (customer types one to place an order): {', '.join(kw_names)}\n\n"
     except Exception as e:
-        print(f"[AIFallback] Error loading products context: {e}", flush=True)
+        print(f"[AIFallback] Error loading keywords: {e}", flush=True)
 
-    # Load Shopify products dynamically
-    try:
-        shopify_products = get_shopify_products_python()
-        if shopify_products and len(shopify_products) > 0:
-            context += "Shopify Store Products:\n"
-            store_domain = os.getenv("SHOPIFY_STORE_DOMAIN", "").strip().replace("https://", "").replace("http://", "").rstrip("/")
-            for p in shopify_products:
-                if p.get("status") == "active":
-                    variants = p.get("variants") or []
-                    price = variants[0].get("price") if variants else "N/A"
-                    handle = p.get("handle", "")
-                    product_url = f"https://{store_domain}/products/{handle}" if store_domain and handle else ""
-                    context += f"- Product Title: \"{p.get('title')}\"\n  Status: In Stock / Listed\n  Price: ₹{price}\n  Link: {product_url}\n\n"
-    except Exception as e:
-        print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
-
-    # Load Instagram automations from the SQLite database
+    # Load Instagram automations
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT name, reply, dm_message, link_url, active FROM ig_automations")
+        cursor.execute("SELECT name, link_url, active FROM ig_automations")
         autos = cursor.fetchall()
         if autos:
-            context += "Instagram Promotions / Automations:\n"
-            for auto in autos:
-                if auto["active"]:
-                    context += f"- Promotion Name: \"{auto['name']}\"\n"
-                    if auto["reply"]:
-                        context += f"  Comments Reply: \"{auto['reply']}\"\n"
-                    if auto["dm_message"]:
-                        context += f"  DM Reply: \"{auto['dm_message']}\"\n"
+            active_promos = [a for a in autos if a["active"]]
+            if active_promos:
+                context += "Instagram Promotions:\n"
+                for auto in active_promos:
+                    context += f"- {auto['name']}"
                     if auto["link_url"]:
-                        context += f"  Product Link: \"{auto['link_url']}\"\n"
+                        context += f" | Link: {auto['link_url']}"
                     context += "\n"
+                context += "\n"
         conn.close()
     except Exception as e:
         print(f"[AIFallback] Error querying db for automations: {e}", flush=True)
@@ -2644,7 +2634,7 @@ Instructions:
                 "Authorization": f"Bearer {groq_key}"
             }
             body = {
-                "model": "llama-3-8b-8192",
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1000,
                 "temperature": 0.7
