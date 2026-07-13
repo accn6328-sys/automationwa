@@ -927,7 +927,7 @@ function startReposterDaemon() {
         cleanDomain = `${cleanDomain}.myshopify.com`;
     }
     try {
-        const url = `https://${cleanDomain}/admin/api/2026-01/products.json?limit=50&fields=title,variants,status`;
+        const url = `https://${cleanDomain}/admin/api/2026-01/products.json?limit=50&fields=title,handle,variants,status`;
         const response = await fetch(url, {
             headers: {
                 "X-Shopify-Access-Token": adminToken
@@ -967,7 +967,11 @@ async function handleAIFallback(sock, senderJid, text, senderName) {
             shopifyProducts.forEach(p => {
                 if (p.status === "active") {
                     const price = p.variants && p.variants[0] ? p.variants[0].price : "N/A";
-                    context += `- Product Title: "${p.title}"\n  Status: In Stock / Listed\n  Price: ₹${price}\n\n`;
+                    const handle = p.handle || "";
+                    const storeUrl = process.env.SHOPIFY_STORE_DOMAIN
+                        ? `https://${process.env.SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, '').replace(/\/$/, '')}/products/${handle}`
+                        : "";
+                    context += `- Product Title: "${p.title}"\n  Status: In Stock / Listed\n  Price: ₹${price}\n  Link: ${storeUrl}\n\n`;
                 }
             });
         }
@@ -1017,11 +1021,14 @@ ${context}
 Instructions:
 1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
 2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
-3. Check the "Shopify Store Products" and "Available Products" list to see if the product they are asking about is listed.
-   - If the product IS listed: Tell the customer that the product is "in stock" in their language and answer any details or price questions using the catalog data.
-   - If the product IS NOT listed: Politely tell them we don't have it in stock currently.
-4. Crucially: Do not answer or converse about anything external to the products in our list. If they ask about unrelated topics, politely refuse to answer.
-5. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
+3. FUZZY PRODUCT MATCHING (very important):
+   - When the customer mentions ANY product name (e.g. "pencil", "printer", "mat"), scan the entire product catalog for the closest matching product — even if it is not an exact keyword match (e.g. "pencil" could match "portable wireless thermal printer" because it prints like a pen).
+   - If you find a related product in the catalog, respond by naming the product, its price, and its link (if any), and ask: "Is this what you were looking for?" — in the customer's language.
+   - If multiple related products are found, list all of them with their prices and links and ask which one they mean.
+4. If the product IS listed exactly: Tell the customer it is "in stock" and provide details.
+5. If no related product is found at all: Politely tell them we don't carry that item and suggest similar available products.
+6. Do NOT answer topics unrelated to products. Politely decline if asked about anything else.
+7. If they express intent to buy, tell them the trigger keyword to start the automated order form (e.g. "To order, please type 'lolcat' to begin your order!").
 `;
 
     // Try Groq Llama first
