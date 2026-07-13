@@ -2586,9 +2586,10 @@ Our Product Catalog & Promotions:
 
 Instructions:
 1. Identify the language used by the customer. Reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
-2. Be friendly, polite, and extremely concise (maximum 2-3 sentences).
-3. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
-4. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
+2. Be friendly, polite, and helpful. Write in natural, grammatically correct, and complete sentences. Do not leave sentences cut off or incomplete.
+3. Keep the response concise but comprehensive enough to answer their question (maximum 100 words).
+4. If they express intent to buy or order a product, explain how to trigger the order flow by typing the specific keyword (e.g. "To order the portable printer, please reply with 'lolcat' to start our automatic order form!").
+5. If the product they are asking about is not in our catalog, politely tell them we don't have it in stock currently and offer to help with other items.
 """
 
     # Try Groq Llama first
