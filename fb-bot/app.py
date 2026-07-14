@@ -4724,11 +4724,10 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
             if reply_texts:
                 chosen_reply = personalize_ig_message(random.choice(reply_texts), username)
                 auto_name_snap = auto.get("name", "")
-                # Fire after a randomized 30-120s delay in a background thread
-                # to mimic human response timing and reduce Instagram spam detection
+                # Fire after a 10s delay in a background thread
                 def _delayed_comment_reply(cid=comment_id, msg=chosen_reply, aname=auto_name_snap):
                     try:
-                        delay_secs = random.randint(30, 120)
+                        delay_secs = 10
                         print(f"  [IG Comment Reply] Waiting {delay_secs}s before replying (anti-spam)", flush=True)
                         time.sleep(delay_secs)
                         reply_to_ig_comment(cid, msg)
@@ -6223,27 +6222,27 @@ INSTAGRAM_HTML = """
         <div id="public-reply-section" style="display:none">
           <div class="input-group">
             <label style="font-weight:700">Public Comment Reply Variations</label>
-            <div style="font-size:11px;color:#6b7280;margin-bottom:10px">One variation is picked at random each time (with a 30–120s delay) to avoid Instagram spam detection. At least 1 required.</div>
+            <div style="font-size:11px;color:#6b7280;margin-bottom:10px">One variation is picked at random each time (with a 10s delay) to avoid Instagram spam detection. At least 1 required.</div>
             <div style="display:flex;flex-direction:column;gap:8px">
               <div>
                 <label style="font-size:11px;font-weight:600;color:#db2777;margin-bottom:3px;display:block">Reply Variation 1 *</label>
-                <textarea id="auto-reply-1" rows="2" placeholder="Thanks @{username}! Check your DMs 📩"></textarea>
+                <textarea id="auto-reply-1" rows="2" placeholder="Thanks @{username}! Check your DMs 📩">Hey! Thanks for the comment 🙌 I just sent you the link in DM — check it out!</textarea>
               </div>
               <div>
                 <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 2 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-2" rows="2" placeholder="Hey @{username}! We've sent you a DM ✉️"></textarea>
+                <textarea id="auto-reply-2" rows="2" placeholder="Hey @{username}! We've sent you a DM ✉️">Hii! Saw your comment 😊 Sliding into your DMs with the details now!</textarea>
               </div>
               <div>
                 <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 3 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-3" rows="2" placeholder="@{username} Check your inbox! 🎉"></textarea>
+                <textarea id="auto-reply-3" rows="2" placeholder="@{username} Check your inbox! 🎉">Thanks for reaching out! I've sent you a message — take a look and let me know if you have questions 💬</textarea>
               </div>
               <div>
                 <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 4 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-4" rows="2" placeholder=""></textarea>
+                <textarea id="auto-reply-4" rows="2" placeholder="">Hey there! Just DM'd you the info you were looking for ✨ Let me know if it helps!</textarea>
               </div>
               <div>
                 <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 5 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-5" rows="2" placeholder=""></textarea>
+                <textarea id="auto-reply-5" rows="2" placeholder="">Got your comment! Sent you a DM with everything you need 🚀</textarea>
               </div>
             </div>
           </div>
@@ -6515,6 +6514,19 @@ function openModal(d,idx){
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
   ['auto-name','auto-reply-1','auto-reply-2','auto-reply-3','auto-reply-4','auto-reply-5','auto-dm','follow-prompt','email-prompt'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  if(!d){
+    const defaultReplies = [
+      "Hey! Thanks for the comment 🙌 I just sent you the link in DM — check it out!",
+      "Hii! Saw your comment 😊 Sliding into your DMs with the details now!",
+      "Thanks for reaching out! I've sent you a message — take a look and let me know if you have questions 💬",
+      "Hey there! Just DM'd you the info you were looking for ✨ Let me know if it helps!",
+      "Got your comment! Sent you a DM with everything you need 🚀"
+    ];
+    for (let i = 1; i <= 5; i++) {
+      const el = document.getElementById('auto-reply-' + i);
+      if (el) el.value = defaultReplies[i - 1];
+    }
+  }
   document.getElementById('auto-dm-type').value='text_button';
   document.getElementById('auto-delay').value='0';
   document.getElementById('ask-follow').checked=false; document.getElementById('email-capture').checked=false;
