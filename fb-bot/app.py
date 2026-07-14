@@ -6451,7 +6451,11 @@ INSTAGRAM_HTML = """
 
 <script>
 let currentStep=1,totalSteps=4,selectedTrigger=null,selectedScope=null,selectedPostIds={},selectedKwType=null,selectedAction='both',keywords=[],postsLoaded=false,editingIdx=-1;
-let spWizardButtons = [];
+let spWizardButtons = [
+  { title: "product site", url: "" },
+  { title: "order from whatsapp", url: "https://wa.me/919895138430?text=" },
+  { title: "whatsapp channel", url: "https://whatsapp.com/channel/0029Vb6MNTICcW4mwYUpvF2a" }
+];
 
 document.getElementById('ask-follow').onchange=e=>{
   document.getElementById('follow-prompt-wrap').style.display=e.target.checked?'block':'none';
@@ -6632,7 +6636,8 @@ function openModal(d,idx){
   editingIdx=idx!==undefined?idx:-1; currentStep=1; selectedTrigger=null; selectedScope=null; selectedPostIds={}; selectedKwType=null; selectedAction='both'; keywords=[]; postsLoaded=false;
   spWizardButtons = [
     { title: "product site", url: "" },
-    { title: "order from whatsapp", url: "" }
+    { title: "order from whatsapp", url: "https://wa.me/919895138430?text=" },
+    { title: "whatsapp channel", url: "https://whatsapp.com/channel/0029Vb6MNTICcW4mwYUpvF2a" }
   ];
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
