@@ -2480,6 +2480,102 @@ def send_official_wa_multi_products(to_number, catalog_id, matched_products, bod
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
 
+
+def send_official_wa_carousel_template(to_number, matched_products):
+    token = os.getenv("PAGE_ACCESS_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    template_name = os.getenv("WHATSAPP_CAROUSEL_TEMPLATE_NAME", "product_carousel")
+    if not token or not phone_id:
+        return
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    clean_to = re.sub(r"\D", "", to_number)
+    
+    cards = []
+    # Maximum 10 cards allowed in a WhatsApp carousel template
+    for idx, p in enumerate(matched_products[:10]):
+        image_url = p.get("image_url") or "https://radikikk.shop/cdn/shop/files/default_image.jpg"
+        title = p.get("title", "Product")
+        price = p.get("price", "N/A")
+        variant_id = p.get("variant_id")
+        
+        if len(title) > 60:
+            title = title[:57] + "..."
+            
+        card = {
+            "card_index": idx,
+            "components": [
+                {
+                    "type": "header",
+                    "parameters": [
+                        {
+                            "type": "image",
+                            "image": {
+                                "link": image_url
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": f"{title} (₹{price})"
+                        }
+                    ]
+                },
+                {
+                    "type": "button",
+                    "sub_type": "quick_reply",
+                    "index": 0,
+                    "parameters": [
+                        {
+                            "type": "payload",
+                            "payload": f"order_variant_{variant_id}"
+                        }
+                    ]
+                },
+                {
+                    "type": "button",
+                    "sub_type": "quick_reply",
+                    "index": 1,
+                    "parameters": [
+                        {
+                            "type": "payload",
+                            "payload": f"ask_variant_{variant_id}"
+                        }
+                    ]
+                }
+            ]
+        }
+        cards.append(card)
+        
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_to,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {
+                "code": "en_US"
+            },
+            "components": [
+                {
+                    "type": "carousel",
+                    "cards": cards
+                }
+            ]
+        }
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    r.raise_for_status()
+
+
 def send_official_wa_catalog(to_number, body_text="Check out our catalog!"):
     token = os.getenv("PAGE_ACCESS_TOKEN")
     phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
@@ -2766,9 +2862,10 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
                 if p.get("status") == "active":
                     variants = p.get("variants") or []
                     price = variants[0].get("price") if variants else "N/A"
+                    variant_id = variants[0].get("id") if variants else "N/A"
                     handle = p.get("handle", "")
                     product_url = f"https://radikikk.shop/products/{handle}"
-                    context += f"- \"{p.get('title')}\" | Price: ₹{price} | Link: {product_url}\n"
+                    context += f"- \"{p.get('title')}\" | Variant ID: {variant_id} | Price: ₹{price} | Link: {product_url}\n"
             context += "\n"
     except Exception as e:
         print(f"[AIFallback] Error loading Shopify products context: {e}", flush=True)
@@ -2776,6 +2873,7 @@ def handle_wa_ai_fallback(sender_wa_id, text, sender_name):
     prompt = f"""
 You are a helpful customer support agent for our online store.
 Your goal is to answer the customer's question based strictly on the product catalog and promotions provided below.
+In addition to answering questions, you can create Shopify orders for customers if they want to place an order.
 
 Customer Details:
 Name: {sender_name}
@@ -2784,11 +2882,42 @@ Message: "{text}"
 Our Product Catalog & Promotions:
 {context}
 
-Instructions:
-1. Identify the customer's language and reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
-2. You must ONLY answer the customer's query directly. Do NOT include any small talk, greeting pleasantries (like "Hello!", "How can I help you today?"), or external chit-chat.
-3. If they ask about a product, explain details, description, or how it works using the catalog details.
-4. Do NOT answer topics unrelated to products. Politely decline if asked about anything else.
+Ordering Instructions:
+If the customer wants to buy, purchase, or order a product:
+1. Check if you have all of the following order details:
+   - "product_title" or "variant_id" (find the best matching product from the catalog)
+   - "name" (customer's full name, default to "{sender_name}" if not provided)
+   - "address" (shipping address)
+   - "pincode" (zip/area code/postal code)
+   - "phone" (contact number, default to "{sender_wa_id.split('@')[0]}" if not provided)
+   - "quantity" (default to "1" if not provided)
+2. If ANY required details (especially address or pincode) are missing, you must ask the customer to provide them before the order can be placed.
+3. If you have ALL the required details, you can confirm you are placing the order and return a JSON payload to trigger the Shopify API.
+
+Output Format:
+Identify the customer's language and reply in the EXACT same language (e.g. Malayalam, Hinglish, English, etc.).
+You MUST respond with a valid JSON object in one of two formats. Do not include markdown wraps (like ```json) or any external conversational text.
+
+Format A - Ask details or general chat:
+{{
+  "action": "chat",
+  "reply": "Your conversational reply to the customer here, answering their question or asking for missing order details (e.g., address, pincode)."
+}}
+
+Format B - Create Shopify Order:
+{{
+  "action": "create_order",
+  "order_details": {{
+    "name": "Customer Full Name",
+    "address": "Shipping Address",
+    "pincode": "Pincode/Zip",
+    "phone": "Phone Number",
+    "variant_id": "Shopify Variant ID",
+    "quantity": "Quantity",
+    "price": "Price of the product"
+  }},
+  "reply": "A confirmation message to the customer stating that their Cash on Delivery (COD) order has been successfully placed!"
+}}
 """
 
     ai_msg = None
@@ -2839,7 +2968,85 @@ Instructions:
                 print(f"[AIFallback] Gemini failed: {e}", flush=True)
 
     if ai_msg:
-        send_official_wa_message(sender_wa_id, text=ai_msg)
+        try:
+            # Strip any markdown code block wraps if present
+            cleaned_msg = ai_msg.strip()
+            if cleaned_msg.startswith("```"):
+                cleaned_msg = re.sub(r"^```(?:json)?\n", "", cleaned_msg)
+                cleaned_msg = re.sub(r"\n```$", "", cleaned_msg)
+            
+            # Simple JSON parse attempt
+            match = re.search(r"\{.*\}", cleaned_msg, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+                action = data.get("action", "chat")
+                reply = data.get("reply", "")
+                
+                if action == "create_order":
+                    details = data.get("order_details", {})
+                    # Construct user_state for create_shopify_order_python
+                    user_state = {
+                        "answers": {
+                            "name": details.get("name") or sender_name or "WhatsApp Customer",
+                            "address": details.get("address"),
+                            "pincode": details.get("pincode"),
+                            "phone": details.get("phone") or sender_wa_id.split("@")[0],
+                            "variant_id": str(details.get("variant_id")),
+                            "variant": str(details.get("variant_id")),
+                            "quantity": str(details.get("quantity", "1")),
+                            "price": str(details.get("price", ""))
+                        },
+                        "paymentMethod": "cod",
+                        "matchedKeywordPattern": "ai_auto_order"
+                    }
+                    print(f"[AIFallback] Attempting AI-driven Shopify Order for {sender_name}...", flush=True)
+                    try:
+                        create_shopify_order_python(user_state, sender_wa_id, sender_name)
+                        # Notify the owner
+                        answers_text = "\n".join([f"*{k}*: {v}" for k, v in user_state.get("answers", {}).items()])
+                        owner_notification = (
+                            f"📦 *New AI Order Created!*\n\n"
+                            f"*Customer*: {sender_name} ({sender_wa_id})\n"
+                            f"*Payment Mode*: Cash on Delivery (COD)\n\n"
+                            f"*Details*:\n{answers_text}"
+                        )
+                        try:
+                            send_official_wa_message("916282444918", text=owner_notification)
+                        except:
+                            pass
+                        
+                        # Add order to database
+                        try:
+                            orders = load_orders()
+                            orders.append({
+                                "jid": sender_wa_id,
+                                "name": sender_name,
+                                "paymentMethod": "cod",
+                                "answers": user_state.get("answers"),
+                                "shopifyProcessed": True,
+                                "shopifyProcessedAt": datetime.datetime.now().isoformat(),
+                                "completedAt": datetime.datetime.now().isoformat()
+                            })
+                            save_orders(orders)
+                        except:
+                            pass
+                        
+                        # Send confirmation reply
+                        send_official_wa_message(sender_wa_id, text=reply)
+                    except Exception as order_err:
+                        print(f"[AIFallback] AI Order creation failed: {order_err}", flush=True)
+                        fallback_msg = f"⚠️ Sorry, we encountered an error placing your order automatically. Please try again or type 'Order' to use the manual flow."
+                        send_official_wa_message(sender_wa_id, text=fallback_msg)
+                else:
+                    if reply:
+                        send_official_wa_message(sender_wa_id, text=reply)
+                    else:
+                        send_official_wa_message(sender_wa_id, text=ai_msg)
+            else:
+                send_official_wa_message(sender_wa_id, text=ai_msg)
+        except Exception as json_err:
+            print(f"[AIFallback] Error parsing AI JSON response: {json_err}. Raw msg: {ai_msg}", flush=True)
+            send_official_wa_message(sender_wa_id, text=ai_msg)
     else:
         # Hard fallback
         try:
@@ -3502,50 +3709,32 @@ def handle_official_wa_message(msg, contact):
         matched_products = find_matching_shopify_products(text, shopify_products)
         
         if matched_products:
-            catalog_id = os.getenv("META_CATALOG_ID")
-            if catalog_id:
-                try:
-                    # Send native WhatsApp Multi-Product/Single-Product native commerce layout!
-                    if len(matched_products) == 1:
-                        p = matched_products[0]
-                        send_official_wa_single_product(
+            try:
+                # Use the WhatsApp Carousel Template message type as requested!
+                send_official_wa_carousel_template(sender_wa_id, matched_products)
+                print(f"[Shopify Intercept] Sent WhatsApp Carousel Template message to {sender_wa_id}", flush=True)
+                return
+            except Exception as e:
+                print(f"[Shopify Intercept] Carousel Template failed: {e}. Falling back to custom cards.", flush=True)
+                # Fallback -> Send beautiful custom card messages
+                for p in matched_products[:3]:
+                    body_text = f"🛍️ *{p['title']}*\n\nPrice: ₹{p['price']}\n\n_{p['description']}_\n\nLink: https://radikikk.shop/products/{p['handle']}"
+                    buttons = [
+                        {"id": f"order_variant_{p['variant_id']}", "title": "Order Now"},
+                        {"id": f"ask_variant_{p['variant_id']}", "title": "Ask Details"}
+                    ]
+                    try:
+                        send_official_wa_interactive_buttons(
                             to_number=sender_wa_id,
-                            catalog_id=catalog_id,
-                            product_retailer_id=p["variant_id"],
-                            body_text=f"Check out *{p['title']}*! Price: ₹{p['price']}"
+                            body_text=body_text,
+                            buttons=buttons,
+                            image_url=p.get("image_url")
                         )
-                        print(f"[Shopify Intercept] Sent native single product card for {p['title']} to {sender_wa_id}", flush=True)
-                    else:
-                        send_official_wa_multi_products(
-                            to_number=sender_wa_id,
-                            catalog_id=catalog_id,
-                            matched_products=matched_products[:30],
-                            body_text="We found these products in our catalog. View and select to order!"
-                        )
-                        print(f"[Shopify Intercept] Sent native Multi-Product Carousel catalog to {sender_wa_id}", flush=True)
-                    return
-                except Exception as cat_err:
-                    print(f"[Shopify Intercept Catalog Error] Native Catalog send failed: {cat_err}. Falling back to custom cards.", flush=True)
-
-            # Fallback (or default if catalog_id is not set) -> Send beautiful custom card messages
-            for p in matched_products[:3]:
-                body_text = f"🛍️ *{p['title']}*\n\nPrice: ₹{p['price']}\n\n_{p['description']}_\n\nLink: https://radikikk.shop/products/{p['handle']}"
-                buttons = [
-                    {"id": f"order_variant_{p['variant_id']}", "title": "Order Now"},
-                    {"id": f"ask_variant_{p['variant_id']}", "title": "Ask Details"}
-                ]
-                try:
-                    send_official_wa_interactive_buttons(
-                        to_number=sender_wa_id,
-                        body_text=body_text,
-                        buttons=buttons,
-                        image_url=p.get("image_url")
-                    )
-                    print(f"[Shopify Intercept] Sent card for {p['title']} to {sender_wa_id}", flush=True)
-                    time.sleep(0.8) # Small delay to keep messages ordered
-                except Exception as e:
-                    print(f"[Shopify Intercept Error] {e}", flush=True)
-            return
+                        print(f"[Shopify Intercept] Sent card for {p['title']} to {sender_wa_id}", flush=True)
+                        time.sleep(0.8) # Small delay to keep messages ordered
+                    except Exception as fallback_err:
+                        print(f"[Shopify Intercept Error] {fallback_err}", flush=True)
+                return
 
         handle_wa_ai_fallback(sender_wa_id, text, sender_name)
 
@@ -3716,6 +3905,7 @@ def perform_ig_private_reply_send(comment_id, message, quick_replies=None, butto
         return False, "Daily DM cap reached"
     try:
         if buttons:
+            buttons = clean_button_urls(buttons)
             has_url = any(is_valid_url(btn.get("url")) for btn in buttons)
             if has_url:
                 meta_buttons = []
@@ -3816,8 +4006,31 @@ def perform_ig_dm_send(user_id, message, tag=None) -> tuple[bool, str]:
 def is_valid_url(url):
     if not url:
         return False
-    url = str(url).strip()
-    return url.startswith("http://") or url.startswith("https://")
+    url = str(url).strip().lower()
+    return (
+        url.startswith("http://") or 
+        url.startswith("https://") or 
+        url.startswith("tel:") or 
+        url.startswith("mailto:")
+    )
+
+
+def clean_button_urls(buttons):
+    if not buttons:
+        return []
+    cleaned = []
+    for btn in buttons:
+        btn_copy = dict(btn)
+        url = btn_copy.get("url") or ""
+        url = str(url).strip()
+        url_lower = url.lower()
+        if url and not url_lower.startswith(("http://", "https://", "tel:", "mailto:")):
+            if url_lower.startswith("wa.me") or "." in url_lower:
+                btn_copy["url"] = "https://" + url
+            elif url.replace(" ", "").replace("+", "").isdigit():
+                btn_copy["url"] = "tel:" + url.replace(" ", "")
+        cleaned.append(btn_copy)
+    return cleaned
 
 def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=None) -> tuple[bool, str]:
     """Send a message containing multiple buttons (web_url button template or quick replies)."""
@@ -3827,6 +4040,7 @@ def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=
     if not buttons_list:
         return perform_ig_dm_send(recipient_id, text, tag=tag)
         
+    buttons_list = clean_button_urls(buttons_list)
     has_url = any(is_valid_url(btn.get("url")) for btn in buttons_list)
     
     try:
