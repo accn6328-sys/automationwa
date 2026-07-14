@@ -2078,9 +2078,9 @@ function openEditIgRuleModal(idx) {
     const card = document.getElementById('igwz-type-' + igwzData.type);
     if (card) card.classList.add('selected');
   }
-  igwzGoToStep(2);
   // fill step 2
   document.getElementById('igwz-name').value = igwzData.name;
+  igwzGoToStep(2);
   igwzSelectScope(igwzData.scope);
   spSelectTriggerMode(igwzData.trigger === 'keyword' ? 'keyword' : 'all');
   igwzRenderKwTags();
