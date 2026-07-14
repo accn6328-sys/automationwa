@@ -1233,7 +1233,7 @@
         <div class="igwz-field">
           <label class="igwz-label">DM content</label>
           <div class="sp-textarea-wrap">
-            <textarea id="igwz-dm" rows="4" placeholder="Hi 👋 Thanks for your comment 🙌 As promised, here's the link for you ⬇️" oninput="spUpdateDMCharCounter(); igwzUpdatePreview();"></textarea>
+            <textarea id="igwz-dm" rows="4" placeholder="Hi 👋 Thanks for your comment 🙌 As promised, here's the link for you ⬇️" oninput="spUpdateDMCharCounter(); igwzUpdatePreview();">Hey there 😊 As promised, here's your link — check it out ⬇️</textarea>
             <div class="sp-textarea-footer">
               <button type="button" class="sp-var-btn" onclick="spInsertVariable('{username}')"># Add a variable</button>
               <span class="sp-char-counter" id="sp-dm-char-count">0/900</span>
@@ -2145,7 +2145,7 @@ function closeIgModal() {
 function igwzReset() {
   document.querySelectorAll('.igwz-type-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('igwz-name').value = '';
-  document.getElementById('igwz-dm').value = '';
+  document.getElementById('igwz-dm').value = "Hey there 😊 As promised, here's your link — check it out ⬇️";
   const defaultReplies = [
     "Hey! Thanks for the comment 🙌 I just sent you the link in DM — check it out!",
     "Hii! Saw your comment 😊 Sliding into your DMs with the details now!",
@@ -2176,7 +2176,10 @@ function igwzReset() {
   document.getElementById('sp-delay-unit').value = 'minutes';
   spUpdateDelaySeconds();
   spUpdateDMCharCounter();
-  spWizardButtons = [];
+  spWizardButtons = [
+    { title: "product site", url: "" },
+    { title: "order from whatsapp", url: "" }
+  ];
   spRenderWizardButtons();
   
   if (editingIgRuleIdx === null) {
@@ -3091,7 +3094,10 @@ function spUpdateDMCharCounter() {
 }
 
 // ── Multi-button wizard helpers ──────────────────────────────
-let spWizardButtons = [];
+let spWizardButtons = [
+  { title: "product site", url: "" },
+  { title: "order from whatsapp", url: "" }
+];
 
 function spRenderWizardButtons() {
   const container = document.getElementById('sp-buttons-container');

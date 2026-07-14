@@ -5769,7 +5769,7 @@ HTML = """
           <div class="notice">⚠️ Facebook only allows DMs if the user has messaged your Page before (within 24h). This may not work for all commenters.</div>
           <div class="input-group">
             <label>Private DM Message</label>
-            <textarea id="auto-dm" rows="3" placeholder="e.g. Hi! Thanks for your interest. Here are our details..."></textarea>
+            <textarea id="auto-dm" rows="3" placeholder="e.g. Hi! Thanks for your interest. Here are our details...">Hey there 😊 As promised, here's your link — check it out ⬇️</textarea>
           </div>
         </div>
 
@@ -5804,7 +5804,7 @@ function openModal(autoData, idx) {
   document.getElementById('kw-input-area').style.display = 'none';
   document.getElementById('auto-name').value  = '';
   document.getElementById('auto-reply').value = '';
-  document.getElementById('auto-dm').value    = '';
+  document.getElementById('auto-dm').value    = "Hey there 😊 As promised, here's your link — check it out ⬇️";
 
   if (autoData) {
     document.getElementById('modal-title').textContent = 'Edit Automation';
@@ -6336,7 +6336,7 @@ INSTAGRAM_HTML = """
         
         <div class="input-group">
           <label>Initial DM Message</label>
-          <textarea id="auto-dm" rows="3" placeholder="Hi {username}! Here's the link you requested..."></textarea>
+          <textarea id="auto-dm" rows="3" placeholder="Hi {username}! Here's the link you requested...">Hey there 😊 As promised, here's your link — check it out ⬇️</textarea>
         </div>
         
         <div id="public-reply-section" style="display:none">
@@ -6630,7 +6630,10 @@ function updatePreview(){
 
 function openModal(d,idx){
   editingIdx=idx!==undefined?idx:-1; currentStep=1; selectedTrigger=null; selectedScope=null; selectedPostIds={}; selectedKwType=null; selectedAction='both'; keywords=[]; postsLoaded=false;
-  spWizardButtons = [];
+  spWizardButtons = [
+    { title: "product site", url: "" },
+    { title: "order from whatsapp", url: "" }
+  ];
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
   ['auto-name','auto-reply-1','auto-reply-2','auto-reply-3','auto-reply-4','auto-reply-5','auto-dm','follow-prompt','email-prompt'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -6646,6 +6649,8 @@ function openModal(d,idx){
       const el = document.getElementById('auto-reply-' + i);
       if (el) el.value = defaultReplies[i - 1];
     }
+    const dmEl = document.getElementById('auto-dm');
+    if (dmEl) dmEl.value = "Hey there 😊 As promised, here's your link — check it out ⬇️";
   }
   document.getElementById('auto-dm-type').value='text_button';
   document.getElementById('auto-delay').value='0';
