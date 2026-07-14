@@ -22,8 +22,15 @@ BASE_DIR = Path(__file__).parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 
-# Cache file path for uploaded shorts
-UPLOAD_CACHE_FILE = BASE_DIR / "uploaded_shorts.json"
+# Cache file path for uploaded shorts using persistent volume if available
+persistent_dir = os.getenv("PERSISTENT_DIR")
+if not persistent_dir and os.path.exists("/data"):
+    persistent_dir = "/data"
+
+if persistent_dir:
+    UPLOAD_CACHE_FILE = Path(persistent_dir) / "uploaded_shorts.json"
+else:
+    UPLOAD_CACHE_FILE = BASE_DIR / "uploaded_shorts.json"
 
 # YouTube paths
 TOKEN_FILE = BASE_DIR / "yt-bot" / "token.json"
@@ -293,6 +300,18 @@ def run_reposter_job():
 
         if not reels:
             log("No Instagram Reels found.")
+            return
+
+        # Initialize empty cache with existing Reels to prevent history flood
+        if not upload_cache:
+            log("Cache is empty. Initializing cache with existing Instagram Reels to prevent duplicate history uploads...")
+            for r in reels:
+                upload_cache[r.get("id")] = {
+                    "youtube_url": "skipped_initialization",
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            save_uploaded_cache(upload_cache)
+            log(f"Cache successfully initialized with {len(reels)} existing Reels. Only future uploads will be processed.")
             return
 
         # Auto-pick the first reel not yet on YouTube
