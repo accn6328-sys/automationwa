@@ -64,12 +64,6 @@ GRAPH_URL              = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
 
 BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
-KEYWORDS_FILE     = os.path.join(BASE_DIR, "keywords.json")
-AUTOMATIONS_FILE  = os.path.join(BASE_DIR, "automations.json")
-REPLIED_FILE      = os.path.join(BASE_DIR, "replied.json")
-MAX_REPLIED_STORE = 5000   # cap stored IDs to avoid unbounded growth
-
-import datetime
 
 # Configuration, state, and orders paths
 persistent_dir = os.getenv("PERSISTENT_DIR")
@@ -78,7 +72,7 @@ if not persistent_dir and os.path.exists("/data"):
 
 def get_flow_path(filename):
     # Check environment variables first to align with Node.js
-    env_key = filename.replace(".json", "").upper() + "_PATH"
+    env_key = filename.replace(".json", "").replace(".db", "").upper() + "_PATH"
     if filename == "conversation_state.json":
         env_key = "CONV_STATE_PATH"
     env_val = os.getenv(env_key)
@@ -91,6 +85,13 @@ def get_flow_path(filename):
     if os.path.exists(os.path.join(BASE_DIR, "app.py")):
         return os.path.join(BASE_DIR, filename)
     return os.path.join(BASE_DIR, "..", filename)
+
+KEYWORDS_FILE     = get_flow_path("keywords.json")
+AUTOMATIONS_FILE  = get_flow_path("automations.json")
+REPLIED_FILE      = get_flow_path("replied.json")
+MAX_REPLIED_STORE = 5000   # cap stored IDs to avoid unbounded growth
+
+import datetime
 
 CONV_STATE_PATH = get_flow_path("conversation_state.json")
 ORDER_FLOW_CONFIG_PATH = get_flow_path("order_flow_config.json")
@@ -133,6 +134,38 @@ def db_execute_script(script):
 def init_sqlite_db():
     schema = """
     CREATE TABLE IF NOT EXISTS ig_automations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        reply TEXT,
+        reply_texts TEXT,
+        action TEXT,
+        dm_message TEXT,
+        trigger_type TEXT,
+        scope TEXT,
+        post_ids TEXT,
+        thumbnail TEXT,
+        keyword_type TEXT,
+        keywords TEXT,
+        active INTEGER,
+        delay_seconds INTEGER,
+        link_url TEXT,
+        follow_up_message TEXT,
+        ask_follow INTEGER,
+        follow_prompt TEXT,
+        email_capture INTEGER,
+        email_prompt TEXT,
+        total_runs INTEGER DEFAULT 0,
+        dms_sent INTEGER DEFAULT 0,
+        replies_sent INTEGER DEFAULT 0,
+        follow_gate_conversions INTEGER DEFAULT 0,
+        button_enabled INTEGER DEFAULT 0,
+        button_label TEXT,
+        button_follow_up_message TEXT,
+        link_button_label TEXT,
+        follow_up_steps TEXT,
+        buttons TEXT
+    );
+    CREATE TABLE IF NOT EXISTS fb_automations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         reply TEXT,
@@ -263,6 +296,30 @@ def init_sqlite_db():
                 cursor.execute("ALTER TABLE ig_automations ADD COLUMN follow_up_steps TEXT")
             if "buttons" not in cols:
                 cursor.execute("ALTER TABLE ig_automations ADD COLUMN buttons TEXT")
+
+            cursor.execute("PRAGMA table_info(fb_automations)")
+            fb_cols = [c[1] for c in cursor.fetchall()]
+            if fb_cols:
+                if "total_runs" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN total_runs INTEGER DEFAULT 0")
+                if "dms_sent" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN dms_sent INTEGER DEFAULT 0")
+                if "replies_sent" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN replies_sent INTEGER DEFAULT 0")
+                if "follow_gate_conversions" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN follow_gate_conversions INTEGER DEFAULT 0")
+                if "button_enabled" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN button_enabled INTEGER DEFAULT 0")
+                if "button_label" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN button_label TEXT")
+                if "button_follow_up_message" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN button_follow_up_message TEXT")
+                if "link_button_label" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN link_button_label TEXT")
+                if "follow_up_steps" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN follow_up_steps TEXT")
+                if "buttons" not in fb_cols:
+                    cursor.execute("ALTER TABLE fb_automations ADD COLUMN buttons TEXT")
             conn.commit()
         except Exception as e:
             print(f"[Migration Error] ig_automations columns: {e}")
@@ -516,18 +573,18 @@ def save_orders(orders):
         return False
 
 # Instagram automation — separate storage (does not touch Facebook data)
-IG_AUTOMATIONS_FILE = os.path.join(BASE_DIR, "ig_automations.json")
-IG_KEYWORDS_FILE    = os.path.join(BASE_DIR, "ig_keywords.json")
-IG_REPLIED_FILE     = os.path.join(BASE_DIR, "ig_replied.json")
-IG_STATS_FILE       = os.path.join(BASE_DIR, "ig_stats.json")
-IG_WELCOMED_FILE    = os.path.join(BASE_DIR, "ig_welcomed.json")
-IG_SETTINGS_FILE    = os.path.join(BASE_DIR, "ig_settings.json")
-IG_MESSAGES_LOG_FILE    = os.path.join(BASE_DIR, "ig_messages_log.json")
-IG_MESSAGES_QUEUE_FILE  = os.path.join(BASE_DIR, "ig_messages_queue.json")
-IG_LEADS_FILE           = os.path.join(BASE_DIR, "ig_leads.json")
-IG_LINK_PAGES_FILE      = os.path.join(BASE_DIR, "ig_link_pages.json")
-IG_SCHEDULED_POSTS_FILE = os.path.join(BASE_DIR, "ig_scheduled_posts.json")
-IG_FLOWS_FILE           = os.path.join(BASE_DIR, "ig_flows.json")
+IG_AUTOMATIONS_FILE = get_flow_path("ig_automations.json")
+IG_KEYWORDS_FILE    = get_flow_path("ig_keywords.json")
+IG_REPLIED_FILE     = get_flow_path("ig_replied.json")
+IG_STATS_FILE       = get_flow_path("ig_stats.json")
+IG_WELCOMED_FILE    = get_flow_path("ig_welcomed.json")
+IG_SETTINGS_FILE    = get_flow_path("ig_settings.json")
+IG_MESSAGES_LOG_FILE    = get_flow_path("ig_messages_log.json")
+IG_MESSAGES_QUEUE_FILE  = get_flow_path("ig_messages_queue.json")
+IG_LEADS_FILE           = get_flow_path("ig_leads.json")
+IG_LINK_PAGES_FILE      = get_flow_path("ig_link_pages.json")
+IG_SCHEDULED_POSTS_FILE = get_flow_path("ig_scheduled_posts.json")
+IG_FLOWS_FILE           = get_flow_path("ig_flows.json")
 
 
 # ── Post cache (avoids hitting Facebook API on every UI load) ─────────────────
@@ -551,58 +608,121 @@ def save_keywords(data):
 # These are the fallback rules written to automations.json when the file is
 # missing (e.g. after a Railway redeploy wipes the ephemeral filesystem).
 # Admins can override via the dashboard; those changes are saved back to disk.
-DEFAULT_FB_AUTOMATIONS = [
-    {
-        "name": "bottle cleaner",
-        "active": True,
-        "scope": "specific",
-        "post_ids": ["657207910809297_122182279484894047"],
-        "action": "both",
-        "keyword_type": "any",
-        "keywords": [],
-        "reply": "Thanks for your interest! 🧹 Check the link in bio for this amazing bottle cleaner.",
-        "dm_message": "Hi! Thanks for commenting on our bottle cleaner Reel 🙌 Here is the product link: https://radikikktiktok.shop/",
-        "thumbnail": ""
-    },
-    {
-        "name": "all posts fallback",
-        "active": True,
-        "scope": "all",
-        "post_ids": [],
-        "action": "both",
-        "keyword_type": "any",
-        "keywords": [],
-        "reply": "Thanks for commenting! 🙌 Check our page for amazing products.",
-        "dm_message": "Hi! Thanks for commenting on our page 😊 Visit us at: https://radikikktiktok.shop/",
-        "thumbnail": ""
-    }
-]
+DEFAULT_FB_AUTOMATIONS = []
 
 def load_automations():
+    init_sqlite_db()
     existing = []
-    if os.path.exists(AUTOMATIONS_FILE):
+    try:
+        rows = db_execute("SELECT * FROM fb_automations")
+        for r in rows:
+            existing.append({
+                "id": r["id"],
+                "name": r["name"],
+                "reply": r["reply"],
+                "reply_texts": json.loads(r["reply_texts"] or "[]"),
+                "action": r["action"],
+                "dm_message": r["dm_message"],
+                "trigger_type": r["trigger_type"],
+                "scope": r["scope"],
+                "post_ids": json.loads(r["post_ids"] or "[]"),
+                "thumbnail": r["thumbnail"],
+                "keyword_type": r["keyword_type"],
+                "keywords": json.loads(r["keywords"] or "[]"),
+                "active": bool(r["active"]),
+                "delay_seconds": r["delay_seconds"],
+                "link_url": r["link_url"],
+                "follow_up_message": r["follow_up_message"],
+                "ask_follow": bool(r["ask_follow"]),
+                "follow_prompt": r["follow_prompt"],
+                "email_capture": bool(r["email_capture"]),
+                "email_prompt": r["email_prompt"],
+                "total_runs": r["total_runs"],
+                "dms_sent": r["dms_sent"],
+                "replies_sent": r["replies_sent"],
+                "follow_gate_conversions": r["follow_gate_conversions"],
+                "button_enabled": bool(r["button_enabled"]),
+                "button_label": r["button_label"],
+                "button_follow_up_message": r["button_follow_up_message"],
+                "link_button_label": r["link_button_label"],
+                "follow_up_steps": json.loads(r["follow_up_steps"] or "[]"),
+                "buttons": json.loads(r["buttons"] or "[]")
+            })
+    except Exception as e:
+        print(f"[load_automations DB error] {e}")
+
+    # Fallback to load/migrate file if DB is empty
+    if not existing and os.path.exists(AUTOMATIONS_FILE):
         try:
             with open(AUTOMATIONS_FILE) as f:
-                existing = json.load(f) or []
-        except Exception:
-            existing = []
-
-    # Always ensure default rules are present (merge by name, don't duplicate)
-    existing_names = {r.get("name") for r in existing}
-    changed = False
-    for default_rule in DEFAULT_FB_AUTOMATIONS:
-        if default_rule["name"] not in existing_names:
-            existing.append(default_rule)
-            changed = True
-
-    if changed:
-        save_automations(existing)
+                file_data = json.load(f) or []
+            if file_data:
+                file_data = [x for x in file_data if x.get("name") not in ("bottle cleaner", "all posts fallback")]
+                if file_data:
+                    save_automations(file_data)
+                    existing = file_data
+        except Exception as e:
+            print(f"[load_automations file fallback error] {e}")
 
     return existing
 
 def save_automations(data):
-    with open(AUTOMATIONS_FILE, "w") as f:
-        json.dump(data, f)
+    # Filter out default rules
+    data = [x for x in data if x.get("name") not in ("bottle cleaner", "all posts fallback")]
+    try:
+        with open(AUTOMATIONS_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"[save_automations file error] {e}")
+
+    try:
+        db_execute("DELETE FROM fb_automations", commit=True)
+        for r in data:
+            db_execute(
+                """
+                INSERT INTO fb_automations (
+                    name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, 
+                    keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, 
+                    follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, 
+                    follow_gate_conversions, button_enabled, button_label, button_follow_up_message, 
+                    link_button_label, follow_up_steps, buttons
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    r.get("name"),
+                    r.get("reply"),
+                    json.dumps(r.get("reply_texts") or []),
+                    r.get("action"),
+                    r.get("dm_message"),
+                    r.get("trigger_type"),
+                    r.get("scope"),
+                    json.dumps(r.get("post_ids") or []),
+                    r.get("thumbnail"),
+                    r.get("keyword_type"),
+                    json.dumps(r.get("keywords") or []),
+                    1 if r.get("active") else 0,
+                    r.get("delay_seconds") or 0,
+                    r.get("link_url"),
+                    r.get("follow_up_message"),
+                    1 if r.get("ask_follow") else 0,
+                    r.get("follow_prompt"),
+                    1 if r.get("email_capture") else 0,
+                    r.get("email_prompt"),
+                    r.get("total_runs") or 0,
+                    r.get("dms_sent") or 0,
+                    r.get("replies_sent") or 0,
+                    r.get("follow_gate_conversions") or 0,
+                    1 if r.get("button_enabled") else 0,
+                    r.get("button_label"),
+                    r.get("button_follow_up_message"),
+                    r.get("link_button_label"),
+                    json.dumps(r.get("follow_up_steps") or []),
+                    json.dumps(r.get("buttons") or [])
+                ),
+                commit=True
+            )
+    except Exception as e:
+        print(f"[save_automations DB error] {e}")
 
 
 # ── In-memory replied tracking (works on PythonAnywhere free plan) ────────────
