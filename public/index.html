@@ -2216,8 +2216,10 @@ function igwzGoToStep(n) {
   document.getElementById('igwz-back').style.display = n > 1 ? 'block' : 'none';
   const nextBtn = document.getElementById('igwz-next');
   nextBtn.textContent = n === 4 ? 'Save Rule' : 'Next →';
+  nextBtn.disabled = false;
   // step-specific setup
   if (n === 2) {
+    igwzCheckStep2();
     const isCommentOrStory = (igwzData.type === 'comment' || igwzData.type === 'live' || igwzData.type === 'story');
     document.getElementById('igwz-scope-section').style.display = isCommentOrStory ? 'block' : 'none';
     const isStory = (igwzData.type === 'story');
