@@ -7300,7 +7300,7 @@ def call_ai_for_matching(prompt, image_url=None):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {groq_key}"
             }
-            model = "llama-3.2-11b-vision-preview" if image_url else "llama-3.3-70b-versatile"
+            model = "llama-3.2-11b-vision-instruct" if image_url else "llama-3.3-70b-versatile"
             body = {
                 "model": model,
                 "messages": [{"role": "user", "content": content}],
@@ -7413,25 +7413,38 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         except Exception as e:
             print(f"[AI Match Parse Error] {e}", flush=True)
             
-    # Text search fallback (only for high-confidence keywords in caption)
+    # Text search fallback (select the product with the highest match count >= 2)
     STOP_WORDS = {
         "your", "with", "this", "that", "from", "have", "will", "here", 
         "there", "about", "good", "best", "great", "like", "more", "just", 
         "make", "made", "some", "them", "then", "into", "onto", "each",
-        "every", "both", "only", "than", "also", "very"
+        "every", "both", "only", "than", "also", "very", "water", "home",
+        "easy", "clean", "cleaner", "cleaning"
     }
+    
+    best_match_p = None
+    best_match_count = 0
+    
     for p in products:
         # Clean title words
         title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
         words = [w for w in title_cleaned.lower().split() if len(w) > 3 and w not in STOP_WORDS]
         if not words:
             continue
+            
         # Check if words are matched as whole words
-        match_count = sum(1 for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower()))
-        if match_count >= 2 or (len(words) == 1 and re.search(rf"\b{re.escape(words[0])}\b", caption.lower())):
-            clean_kw = re.sub(r"[^a-z0-9_]", "", p["handle"].replace("-", "_"))
-            print(f"[AI Match Debug] Fallback text match succeeded for product: '{p['title']}'", flush=True)
-            return p, clean_kw
+        matched_words = [w for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower())]
+        match_count = len(matched_words)
+        
+        if match_count >= 2:
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_match_p = p
+                
+    if best_match_p:
+        clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
+        print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Match count: {best_match_count}", flush=True)
+        return best_match_p, clean_kw
             
     # Do not return fallback_p to avoid duplicate inaccurate rules
     print("[AI Match Debug] No product matched this post. Skipping automation.", flush=True)
@@ -7466,7 +7479,10 @@ def ig_bulk_automate():
             return jsonify({"ok": True, "message": "All latest videos/posts are already automated!"})
             
         new_rules_count = 0
-        for m in target_media:
+        for idx, m in enumerate(target_media):
+            if idx > 0:
+                print(f"[Bulk Automate] Sleeping 3 seconds to prevent AI rate limits...", flush=True)
+                time.sleep(3)
             caption = m.get("message") or ""
             thumbnail = m.get("thumbnail") or ""
             media_id = m.get("id")
