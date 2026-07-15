@@ -16,6 +16,10 @@ import os from 'os';
 
 const execPromise = promisify(exec);
 
+// Resolve __dirname in ES module context
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Manual .env file loader for workspace root fallbacks
 const envPaths = [
     path.resolve(__dirname, '..', '.env'),
@@ -118,9 +122,7 @@ function restoreSession(authDir) {
     } catch(e) { console.error('Session restore failed:', e.message); return false; }
 }
 
-// Resolve __dirname in ES module context
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is now resolved at the top of the file
 
 // Official WhatsApp Cloud API Helpers
 async function uploadWAMedia(phoneId, token, base64Data, filename, mimeType) {
