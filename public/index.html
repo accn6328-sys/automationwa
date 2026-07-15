@@ -335,12 +335,19 @@
         <div class="sp-main" style="display: flex; flex-direction: column; gap: 20px; min-width: 0; width: 100%;">
             
             <!-- Header area -->
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
                 <div>
                     <h1 style="font-size: 24px; font-weight: 700; font-family: 'Outfit', sans-serif;">AutoDM</h1>
                     <p style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">Manage automated direct message replies to comments, mentions, and stories.</p>
                 </div>
-                <button class="btn" style="background: #3b82f6; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35); padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;" onclick="openCreateIgRuleModal()">+ Create Automation</button>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 6px 12px; border-radius: 10px; border: 1px solid var(--border-glass);">
+                        <label for="bulk-auto-count" style="font-size: 13px; color: var(--text-secondary); font-weight: 500;">Automate latest:</label>
+                        <input type="number" id="bulk-auto-count" value="20" min="1" max="100" style="width: 50px; background: transparent; border: none; color: var(--text-primary); font-weight: 600; text-align: center; outline: none;">
+                        <button id="btn-bulk-automate" class="btn" style="background: linear-gradient(135deg, #a855f7, #ec4899); padding: 6px 14px; border-radius: 8px; font-size: 13px;" onclick="runBulkAutomate()">Automate Reels</button>
+                    </div>
+                    <button class="btn" style="background: #3b82f6; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35); padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;" onclick="openCreateIgRuleModal()">+ Create Automation</button>
+                </div>
             </div>
 
             <!-- Custom tabs section: Automations, Settings, Link-in-Bio, Comments, Post Scheduler -->
@@ -2889,6 +2896,46 @@ async function resetIgStats() {
         }
     } catch(e) {
         alert('Error: ' + e.message);
+    }
+}
+
+async function runBulkAutomate() {
+    const countInput = document.getElementById('bulk-auto-count');
+    const count = parseInt(countInput.value) || 20;
+    if (count < 1) {
+        alert('Please enter a valid number of videos to automate.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to automate the latest ${count} not-yet-automated videos/posts using AI product matching?`)) {
+        return;
+    }
+    
+    const btn = document.getElementById('btn-bulk-automate');
+    const originalText = btn.textContent;
+    btn.textContent = 'Automating...';
+    btn.disabled = true;
+    
+    try {
+        const res = await fetch('/fb/instagram/ui/bulk-automate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ count: count })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            alert(data.message || `Successfully automated latest ${count} videos!`);
+            location.reload();
+        } else {
+            alert('Failed to automate: ' + (data.error || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('Error: ' + e.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
     }
 }
 
