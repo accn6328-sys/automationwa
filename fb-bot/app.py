@@ -7119,12 +7119,51 @@ def ig_toggle_automation(idx):
     return jsonify({"ok": True})
 
 def get_shopify_products_for_matching():
-    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
-    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
-    if not store_domain or not admin_token:
-        print("[Shopify Match] Missing Shopify credentials in environment.")
-        return []
+    # Diagnostic logging of keys
+    print(f"[Shopify Match Debug] Os Env Keys: {list(os.environ.keys())}", flush=True)
     
+    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
+    admin_token = (
+        os.getenv("SHOPIFY_ADMIN_TOKEN") or 
+        os.getenv("SHOPIFY_ACCESS_TOKEN") or 
+        os.getenv("SHOPIFY_APP_TOKEN") or 
+        os.getenv("SHOPIFY_TOKEN") or
+        os.getenv("shopify_token")
+    )
+    
+    # Try reading parent .env files
+    env_paths = [
+        os.path.abspath(os.path.join(BASE_DIR, "..", ".env")),
+        os.path.abspath(os.path.join(BASE_DIR, "..", "..", ".env")),
+        os.path.abspath(os.path.join(BASE_DIR, ".env"))
+    ]
+    
+    for path in env_paths:
+        if os.path.exists(path):
+            print(f"[Shopify Match Debug] Parsing env file at: {path}", flush=True)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            parts = line.split("=", 1)
+                            k = parts[0].strip()
+                            v = parts[1].strip().strip("'").strip('"')
+                            if k == "SHOPIFY_STORE_DOMAIN" and not store_domain:
+                                store_domain = v
+                            if k in ("SHOPIFY_ADMIN_TOKEN", "SHOPIFY_ACCESS_TOKEN", "SHOPIFY_APP_TOKEN") and not admin_token:
+                                admin_token = v
+            except Exception as e:
+                print(f"[Shopify Match Debug] Error parsing {path}: {e}", flush=True)
+
+    if not store_domain:
+        print("[Shopify Match Error] SHOPIFY_STORE_DOMAIN is not configured in process environment or parent .env.", flush=True)
+        return []
+        
+    if not admin_token:
+        print("[Shopify Match Error] Shopify admin token is not configured in process environment or parent .env.", flush=True)
+        return []
+        
     clean_domain = store_domain.replace("https://", "").replace("http://", "").strip()
     if not clean_domain.endswith(".myshopify.com") and "." not in clean_domain:
         clean_domain = f"{clean_domain}.myshopify.com"
@@ -7136,17 +7175,22 @@ def get_shopify_products_for_matching():
     
     public_domain = clean_domain
     try:
-        r = requests.get(f"https://{clean_domain}/admin/api/2026-01/shop.json", headers=headers, timeout=10)
+        r = requests.get(f"https://{clean_domain}/admin/api/2025-01/shop.json", headers=headers, timeout=10)
+        print(f"[Shopify Match] shop.json response status: {r.status_code}", flush=True)
         if r.status_code == 200:
             public_domain = r.json().get("shop", {}).get("domain") or clean_domain
+        else:
+            print(f"[Shopify Match] shop.json error body: {r.text}", flush=True)
     except Exception as e:
-        print(f"[Shopify Match] Error fetching shop info: {e}")
+        print(f"[Shopify Match] Error fetching shop info: {e}", flush=True)
         
     products = []
     try:
-        r = requests.get(f"https://{clean_domain}/admin/api/2026-01/products.json?limit=250", headers=headers, timeout=15)
+        r = requests.get(f"https://{clean_domain}/admin/api/2025-01/products.json?limit=250", headers=headers, timeout=15)
+        print(f"[Shopify Match] products.json response status: {r.status_code}", flush=True)
         if r.status_code == 200:
             raw_products = r.json().get("products", [])
+            print(f"[Shopify Match] Successfully loaded {len(raw_products)} products.", flush=True)
             for p in raw_products:
                 products.append({
                     "id": p.get("id"),
@@ -7154,8 +7198,10 @@ def get_shopify_products_for_matching():
                     "handle": p.get("handle", ""),
                     "url": f"https://{public_domain}/products/{p.get('handle')}"
                 })
+        else:
+            print(f"[Shopify Match] products.json error body: {r.text}", flush=True)
     except Exception as e:
-        print(f"[Shopify Match] Error fetching products: {e}")
+        print(f"[Shopify Match] Error fetching products: {e}", flush=True)
         
     return products
 
