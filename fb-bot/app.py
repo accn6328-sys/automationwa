@@ -2046,6 +2046,89 @@ def extract_field_python(answers, keys):
                 return ans_val
     return None
 
+_shopify_token_cache = None
+_shopify_token_expires = 0
+
+def get_shopify_token():
+    global _shopify_token_cache, _shopify_token_expires
+    if _shopify_token_cache and time.time() < _shopify_token_expires - 60:
+        return _shopify_token_cache
+        
+    store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
+    client_id = os.getenv("SHOPIFY_CLIENT_ID")
+    client_secret = os.getenv("SHOPIFY_APP_SECRET")
+    
+    # Try parent env fallbacks if missing
+    if not store_domain or not client_id or not client_secret:
+        try:
+            parent_envs = [
+                os.path.abspath(os.path.join(BASE_DIR, "..", ".env")),
+                os.path.abspath(os.path.join(BASE_DIR, "..", "..", ".env")),
+                os.path.abspath(os.path.join(BASE_DIR, ".env"))
+            ]
+            for path in parent_envs:
+                if os.path.exists(path):
+                    from dotenv import dotenv_values
+                    config = dotenv_values(path)
+                    if not store_domain:
+                        store_domain = config.get("SHOPIFY_STORE_DOMAIN")
+                    if not client_id:
+                        client_id = config.get("SHOPIFY_CLIENT_ID")
+                    if not client_secret:
+                        client_secret = config.get("SHOPIFY_APP_SECRET")
+        except:
+            pass
+            
+    if not store_domain:
+        store_domain = "2txc0h-0a.myshopify.com"
+        
+    clean_domain = store_domain.replace("https://", "").replace("http://", "").strip()
+    if not clean_domain.endswith(".myshopify.com") and "." not in clean_domain:
+        clean_domain = f"{clean_domain}.myshopify.com"
+        
+    if client_id and client_secret:
+        try:
+            print(f"[Shopify OAuth] Requesting access token for {clean_domain}...", flush=True)
+            resp = requests.post(
+                f"https://{clean_domain}/admin/oauth/access_token",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": client_id,
+                    "client_secret": client_secret
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                _shopify_token_cache = data.get("access_token")
+                _shopify_token_expires = time.time() + data.get("expires_in", 86399)
+                print("[Shopify OAuth] Token obtained successfully via client credentials.", flush=True)
+                return _shopify_token_cache
+            else:
+                print(f"[Shopify OAuth] Exchange failed ({resp.status_code}): {resp.text}", flush=True)
+        except Exception as e:
+            print(f"[Shopify OAuth] Exchange exception: {e}", flush=True)
+            
+    static_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+    if not static_token:
+        try:
+            parent_envs = [
+                os.path.abspath(os.path.join(BASE_DIR, "..", ".env")),
+                os.path.abspath(os.path.join(BASE_DIR, "..", "..", ".env"))
+            ]
+            for path in parent_envs:
+                if os.path.exists(path):
+                    from dotenv import dotenv_values
+                    config = dotenv_values(path)
+                    static_token = config.get("SHOPIFY_ADMIN_TOKEN")
+                    if static_token:
+                        break
+        except:
+            pass
+            
+    return static_token
+
 def create_shopify_order_python(user_state, sender_wa_id, sender_name):
     answers = user_state.get("answers", {})
     name = extract_field_python(answers, ['name', 'customer', 'full name', 'buyer']) or sender_name or 'WhatsApp Customer'
@@ -2180,7 +2263,7 @@ def create_shopify_order_python(user_state, sender_wa_id, sender_name):
         shopify_order["order"]["line_items"][0]["price"] = price
 
     store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
-    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+    admin_token = get_shopify_token()
 
     if not store_domain or not admin_token or "xxxxxx" in admin_token:
         err_msg = "Shopify credentials missing or unconfigured in .env file."
@@ -2904,7 +2987,7 @@ def send_official_wa_interactive_buttons(to_number, body_text, buttons, image_ur
 
 
 def get_shopify_products_python():
-    admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+    admin_token = get_shopify_token()
     store_domain = os.getenv("SHOPIFY_STORE_DOMAIN") or '2txc0h-0a.myshopify.com'
     if not admin_token:
         return []
@@ -7123,13 +7206,7 @@ def get_shopify_products_for_matching():
     print(f"[Shopify Match Debug] Os Env Keys: {list(os.environ.keys())}", flush=True)
     
     store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
-    admin_token = (
-        os.getenv("SHOPIFY_ADMIN_TOKEN") or 
-        os.getenv("SHOPIFY_ACCESS_TOKEN") or 
-        os.getenv("SHOPIFY_APP_TOKEN") or 
-        os.getenv("SHOPIFY_TOKEN") or
-        os.getenv("shopify_token")
-    )
+    admin_token = get_shopify_token()
     
     # Try reading parent .env files
     env_paths = [

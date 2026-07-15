@@ -16,6 +16,80 @@ import os from 'os';
 
 const execPromise = promisify(exec);
 
+// Manual .env file loader for workspace root fallbacks
+const envPaths = [
+    path.resolve(__dirname, '..', '.env'),
+    path.resolve(__dirname, '..', '..', '.env'),
+    path.resolve(__dirname, '.env')
+];
+for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+        try {
+            const content = fs.readFileSync(envPath, 'utf8');
+            content.split('\n').forEach(line => {
+                line = line.trim();
+                if (line && !line.startsWith('#') && line.includes('=')) {
+                    const parts = line.split('=');
+                    const k = parts[0].trim();
+                    const v = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+                    if (k && !process.env[k]) {
+                        process.env[k] = v;
+                    }
+                }
+            });
+            console.log(`[Env Loader] Loaded .env variables from ${envPath}`);
+        } catch (err) {
+            console.error(`[Env Loader] Error reading ${envPath}:`, err.message);
+        }
+    }
+}
+
+// Global cached Shopify token logic
+let cachedShopifyToken = null;
+let cachedShopifyTokenExpires = 0;
+
+async function getShopifyAccessToken() {
+    if (cachedShopifyToken && Date.now() < cachedShopifyTokenExpires - 60000) {
+        return cachedShopifyToken;
+    }
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || '2txc0h-0a.myshopify.com';
+    const cleanDomain = storeDomain.replace(/^https?:\/\//, '').trim();
+    const clientId = process.env.SHOPIFY_CLIENT_ID;
+    const clientSecret = process.env.SHOPIFY_APP_SECRET;
+    
+    if (clientId && clientSecret) {
+        try {
+            console.log(`[Shopify OAuth] Requesting access token for ${cleanDomain}...`);
+            const resp = await fetch(`https://${cleanDomain}/admin/oauth/access_token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: new URLSearchParams({
+                    grant_type: 'client_credentials',
+                    client_id: clientId,
+                    client_secret: clientSecret
+                }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                cachedShopifyToken = data.access_token;
+                cachedShopifyTokenExpires = Date.now() + (data.expires_in || 86399) * 1000;
+                console.log('[Shopify OAuth] Successfully obtained access token.');
+                return cachedShopifyToken;
+            } else {
+                console.log(`[Shopify OAuth] Token exchange failed with status ${resp.status}: ${await resp.text()}`);
+            }
+        } catch (e) {
+            console.log(`[Shopify OAuth] Token exchange exception: ${e.message}`);
+        }
+    }
+    
+    // Fallback to static token
+    return process.env.SHOPIFY_ADMIN_TOKEN;
+}
+
 // Session backup/restore helpers
 // Saves auth_info_baileys as base64 JSON to a backup file so sessions survive Railway restarts
 const SESSION_BACKUP_PATH = process.env.SESSION_BACKUP_PATH || path.join(os.tmpdir(), 'wa_session_backup.json');
@@ -553,7 +627,7 @@ async function createShopifyOrderForState(userState, senderJid, senderName, sock
     }
     
     const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
-    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
+    const adminToken = await getShopifyAccessToken();
     
     if (!storeDomain || !adminToken || adminToken.includes('xxxxxx')) {
         const errMsg = 'Shopify credentials missing or unconfigured in .env file.';
@@ -581,7 +655,7 @@ async function createShopifyOrderForState(userState, senderJid, senderName, sock
         cleanDomain = `${cleanDomain}.myshopify.com`;
     }
     
-    const shopifyUrl = `https://${cleanDomain}/admin/api/2026-01/orders.json`;
+    const shopifyUrl = `https://${cleanDomain}/admin/api/2025-01/orders.json`;
     
     try {
         const response = await fetch(shopifyUrl, {
@@ -1025,13 +1099,13 @@ function findMatchingShopifyProducts(text, products) {
 
 
   async function getShopifyProducts() {
-    const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
     const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || '2txc0h-0a.myshopify.com';
+    const adminToken = await getShopifyAccessToken();
     if (!adminToken) {
         return [];
     }
     try {
-        const url = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&fields=title,handle,variants,status,images,body_html`;
+        const url = `https://${storeDomain}/admin/api/2025-01/products.json?limit=250&fields=title,handle,variants,status,images,body_html`;
         const response = await fetch(url, {
             headers: {
                 "X-Shopify-Access-Token": adminToken
