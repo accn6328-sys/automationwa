@@ -7405,9 +7405,8 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
             clean_kw = re.sub(r"[^a-z0-9_]", "", p["handle"].replace("-", "_"))
             return p, clean_kw
             
-    fallback_p = products[0]
-    clean_kw = re.sub(r"[^a-z0-9_]", "", fallback_p["handle"].replace("-", "_"))
-    return fallback_p, clean_kw
+    # Do not return fallback_p to avoid duplicate inaccurate rules
+    return None, None
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
 def ig_bulk_automate():
@@ -7450,8 +7449,13 @@ def ig_bulk_automate():
             product_url = matched_product["url"]
             product_title = matched_product["title"]
             
+            # Truncate rule name to max 3 words
+            title_words = product_title.strip().split()
+            name_3_words = " ".join(title_words[:3])
+            rule_name = f"Auto: {name_3_words}"
+            
             rule = {
-                "name": f"Auto: {product_title[:25]}",
+                "name": rule_name,
                 "reply": "Check your DM inbox for details! 😊",
                 "reply_texts": [
                     "Check your DM inbox for details! 😊",
@@ -7460,7 +7464,7 @@ def ig_bulk_automate():
                     "Please check your message request or DM! Inbox sent. ✉️"
                 ],
                 "action": "both",
-                "dm_message": f"Hey there 😊 Here is the link for the {product_title} in this video:\n\n1. Shop on our website: {product_url}\n2. Or order directly on WhatsApp: https://wa.me/919895138430?text={keyword}\n\nEnjoy shopping! ✨",
+                "dm_message": "Hey there 😊 Here is the link ",
                 "trigger_type": "comment",
                 "scope": "specific",
                 "post_ids": [media_id],
@@ -7488,6 +7492,10 @@ def ig_bulk_automate():
                     {
                         "title": "Order on WhatsApp",
                         "url": f"https://wa.me/919895138430?text={keyword}"
+                    },
+                    {
+                        "title": "WhatsApp Channel",
+                        "url": "https://whatsapp.com/channel/0029Vb6MNTICcW4mwYUpvF2a"
                     }
                 ]
             }
@@ -7498,6 +7506,15 @@ def ig_bulk_automate():
             save_ig_automations(autos)
             
         return jsonify({"ok": True, "message": f"Successfully automated {new_rules_count} latest videos/posts!"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/instagram/ui/automations/clear-all", methods=["POST", "GET"])
+def ig_clear_all_automations():
+    try:
+        save_ig_automations([])
+        return jsonify({"ok": True, "message": "Successfully cleared all Instagram automation rules!"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

@@ -419,6 +419,7 @@
                         <button class="btn" style="padding: 6px 12px; font-size: 12.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" onclick="sortSpRulesTable()">⇅ Sort</button>
                         <button class="btn" style="padding: 6px 12px; font-size: 12.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" onclick="alert('Filtering active automations!')">⚙️ Filter</button>
                         <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12.5px; margin-right: 4px;" onclick="resetIgStats()">🔄 Reset Stats</button>
+                        <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12.5px; margin-right: 4px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3);" onclick="clearAllIgAutomations()">🗑️ Clear All Rules</button>
                         <a href="/fb/instagram/ui/leads/export" class="btn" style="padding: 6px 12px; font-size: 12.5px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">📥 Export Leads</a>
                     </div>
                 </div>
@@ -2936,6 +2937,24 @@ async function runBulkAutomate() {
     } finally {
         btn.textContent = originalText;
         btn.disabled = false;
+    }
+}
+
+async function clearAllIgAutomations() {
+    if (!confirm("Are you sure you want to delete ALL Instagram automation rules? This cannot be undone.")) {
+        return;
+    }
+    try {
+        const res = await fetch('/fb/instagram/ui/automations/clear-all', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+            alert(data.message || "All rules cleared successfully!");
+            location.reload();
+        } else {
+            alert("Failed to clear rules: " + (data.error || "Unknown error"));
+        }
+    } catch (e) {
+        alert("Error: " + e.message);
     }
 }
 
