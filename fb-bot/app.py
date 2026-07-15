@@ -7351,8 +7351,9 @@ Here is the list of products in our Shopify store:
 {products_list_str}
 
 Your task:
-1. Find the Shopify product that matches the reel/post best based on the caption and/or the image. If nothing matches, choose the most general one or return null.
-2. Generate a unique, short, lowercase keyword for this product (e.g. for "pencil brush", generate "pencil_brush"). It must be snake_case (lowercase, letters, numbers, and underscores only).
+1. Find the Shopify product that matches the reel/post best based on the caption and/or the image.
+2. If NO product in the list matches the post, you MUST return null for all fields (product_id: null, product_title: null, product_handle: null, keyword: null). Do NOT guess, do NOT choose a random product, and do NOT fallback to a 'general' product if there is no clear match.
+3. If a match is found, generate a unique, short, lowercase keyword for this product (e.g. for "pencil brush", generate "pencil_brush"). It must be snake_case (lowercase, letters, numbers, and underscores only).
 
 You MUST respond with a JSON object in this format:
 {{
@@ -7363,10 +7364,14 @@ You MUST respond with a JSON object in this format:
 }}
 Return ONLY the raw JSON. Do not include markdown code block wraps.
 """
+    print(f"[AI Match Debug] Processing reel caption: '{caption}' | Image URL: {thumbnail_url}", flush=True)
     
     ai_resp = call_ai_for_matching(prompt, image_url=thumbnail_url)
     if not ai_resp and thumbnail_url:
+        print("[AI Match Debug] Vision model returned None, falling back to text-only AI model...", flush=True)
         ai_resp = call_ai_for_matching(prompt)
+        
+    print(f"[AI Match Debug] AI Raw Response: {ai_resp}", flush=True)
         
     if ai_resp:
         try:
@@ -7382,6 +7387,11 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 handle = data.get("product_handle")
                 kw = data.get("keyword")
                 
+                # Check for null values to avoid false matching
+                if pid is None or pid == "null" or handle is None or handle == "null":
+                    print("[AI Match Debug] AI resolved this post to NO product match (returned null).", flush=True)
+                    return None, None
+                
                 matched_p = None
                 if pid:
                     matched_p = next((p for p in products if str(p["id"]) == str(pid)), None)
@@ -7394,18 +7404,22 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
                     if not clean_kw:
                         clean_kw = re.sub(r"[^a-z0-9_]", "", matched_p["handle"].replace("-", "_"))
+                    print(f"[AI Match Debug] Matched to product: '{matched_p['title']}' | Keyword: '{clean_kw}'", flush=True)
                     return matched_p, clean_kw
         except Exception as e:
-            print(f"[AI Match Parse Error] {e}")
+            print(f"[AI Match Parse Error] {e}", flush=True)
             
+    # Text search fallback (only for high-confidence keywords in caption)
     for p in products:
         words = p["title"].lower().split()
         match_count = sum(1 for w in words if len(w) > 3 and w in caption.lower())
         if match_count >= 2 or (len(words) == 1 and words[0] in caption.lower()):
             clean_kw = re.sub(r"[^a-z0-9_]", "", p["handle"].replace("-", "_"))
+            print(f"[AI Match Debug] Fallback text match succeeded for product: '{p['title']}'", flush=True)
             return p, clean_kw
             
     # Do not return fallback_p to avoid duplicate inaccurate rules
+    print("[AI Match Debug] No product matched this post. Skipping automation.", flush=True)
     return None, None
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
