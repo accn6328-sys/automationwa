@@ -7310,6 +7310,8 @@ def call_ai_for_matching(prompt, image_url=None):
             resp = requests.post(url, headers=headers, json=body, timeout=15)
             if resp.status_code == 200:
                 return resp.json()["choices"][0]["message"]["content"].strip()
+            else:
+                print(f"[AI Match Error] Groq API returned status {resp.status_code}: {resp.text}", flush=True)
         except Exception as e:
             print(f"[AI Match] Groq failed: {e}", flush=True)
             
@@ -7329,6 +7331,8 @@ def call_ai_for_matching(prompt, image_url=None):
             resp = requests.post(url, headers=headers, json=body, timeout=15)
             if resp.status_code == 200:
                 return resp.json()["choices"][0]["message"]["content"].strip()
+            else:
+                print(f"[AI Match Error] Gemini API returned status {resp.status_code}: {resp.text}", flush=True)
         except Exception as e:
             print(f"[AI Match] Gemini failed: {e}", flush=True)
             
@@ -7410,10 +7414,21 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
             print(f"[AI Match Parse Error] {e}", flush=True)
             
     # Text search fallback (only for high-confidence keywords in caption)
+    STOP_WORDS = {
+        "your", "with", "this", "that", "from", "have", "will", "here", 
+        "there", "about", "good", "best", "great", "like", "more", "just", 
+        "make", "made", "some", "them", "then", "into", "onto", "each",
+        "every", "both", "only", "than", "also", "very"
+    }
     for p in products:
-        words = p["title"].lower().split()
-        match_count = sum(1 for w in words if len(w) > 3 and w in caption.lower())
-        if match_count >= 2 or (len(words) == 1 and words[0] in caption.lower()):
+        # Clean title words
+        title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
+        words = [w for w in title_cleaned.lower().split() if len(w) > 3 and w not in STOP_WORDS]
+        if not words:
+            continue
+        # Check if words are matched as whole words
+        match_count = sum(1 for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower()))
+        if match_count >= 2 or (len(words) == 1 and re.search(rf"\b{re.escape(words[0])}\b", caption.lower())):
             clean_kw = re.sub(r"[^a-z0-9_]", "", p["handle"].replace("-", "_"))
             print(f"[AI Match Debug] Fallback text match succeeded for product: '{p['title']}'", flush=True)
             return p, clean_kw
