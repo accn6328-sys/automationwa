@@ -615,10 +615,23 @@ DEFAULT_FB_AUTOMATIONS = []
 
 def load_automations():
     init_sqlite_db()
+    latest_thumb = ""
+    try:
+        posts = fetch_page_posts()
+        for p in posts:
+            if p.get("thumbnail"):
+                latest_thumb = p["thumbnail"]
+                break
+    except:
+        pass
+        
     existing = []
     try:
         rows = db_execute("SELECT * FROM fb_automations")
         for r in rows:
+            thumb = r["thumbnail"]
+            if not thumb and latest_thumb:
+                thumb = latest_thumb
             existing.append({
                 "id": r["id"],
                 "name": r["name"],
@@ -629,7 +642,7 @@ def load_automations():
                 "trigger_type": r["trigger_type"],
                 "scope": r["scope"],
                 "post_ids": json.loads(r["post_ids"] or "[]"),
-                "thumbnail": r["thumbnail"],
+                "thumbnail": thumb,
                 "keyword_type": r["keyword_type"],
                 "keywords": json.loads(r["keywords"] or "[]"),
                 "active": bool(r["active"]),
@@ -1024,6 +1037,16 @@ def _migrate_reply_texts_column():
 
 
 def load_ig_automations():
+    latest_thumb = ""
+    try:
+        media = fetch_ig_media()
+        for m in media:
+            if m.get("thumbnail"):
+                latest_thumb = m["thumbnail"]
+                break
+    except:
+        pass
+
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
@@ -1031,6 +1054,9 @@ def load_ig_automations():
         rows = cursor.fetchall()
         rules = []
         for r in rows:
+            thumb = r["thumbnail"]
+            if not thumb and latest_thumb:
+                thumb = latest_thumb
             # ── Backward-compat: migrate old single `reply` string → reply_texts array ──
             raw_reply_texts = r["reply_texts"] if "reply_texts" in r.keys() else None
             if raw_reply_texts:
