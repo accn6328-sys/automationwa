@@ -24,3 +24,27 @@ fb-bot/ig_stats.json
 fb-bot/__pycache__/
 fb-bot/*.pyc
 
+# Pipeline profile caches and run log files
+**/chatgpt_profile_lr/**
+**/chatgpt_profile_lr/
+**/chatgpt_profile_lr
+**/omni/**
+**/omni/
+**/omni
+**/frames_tmp/**
+**/frames_tmp/
+**/frames_tmp
+work/chatgpt_profile_lr/
+work/chatgpt_profile_lr
+work/omni/
+work/omni
+work/frames_tmp/
+work/frames_tmp
+work/__pycache__/
+work/videos/
+work/voices/
+needs_manual_review.json
+pipeline_log.json
+temp_downloads/
+product_videos/
+processed_ig_videos.json
