@@ -7424,6 +7424,14 @@ def call_ai_for_matching(prompt, image_url=None):
             
     return None
 
+STOP_WORDS = {
+    "your", "with", "this", "that", "from", "have", "will", "here", 
+    "there", "about", "good", "best", "great", "like", "more", "just", 
+    "make", "made", "some", "them", "then", "into", "onto", "each",
+    "every", "both", "only", "than", "also", "very", "water", "home",
+    "easy", "clean", "cleaner", "cleaning"
+}
+
 def clean_rule_name(name):
     # Remove leading generic prefixes like "2 in 1", "3 in 1", etc. case insensitively
     name_clean = re.sub(r"^(?:2\s*in\s*1|3\s*in\s*1|2-in-1|3-in-1|2in1|3in1|large|small|mini|new|hot|sale)\b", "", name, flags=re.IGNORECASE).strip()
@@ -7432,6 +7440,18 @@ def clean_rule_name(name):
     if not name_clean:
         return name
     return name_clean
+
+def sanitize_final_rule_name(auto_name, title):
+    name = (auto_name or "").strip()
+    name = clean_rule_name(name)
+    # If the clean name is empty, too short, or a generic prefix, clean the title instead
+    if len(name) < 5 or name.lower() in ("2 in 1", "3 in 1", "2-in-1", "3-in-1", "2in1", "3in1"):
+        name = clean_rule_name(title)
+    # Ensure it's not still generic/empty
+    if not name or name.lower() in ("2 in 1", "3 in 1", "2-in-1", "3-in-1", "2in1", "3in1"):
+        name = "Shop All"
+    # Limit clean_auto_name to max 4 words
+    return " ".join(name.split()[:4])
 
 def clean_keyword_text(kw):
     # Strip leading generic segments from snake_case keyword
@@ -7516,16 +7536,11 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     kw_parts = [p for p in clean_kw.split("_") if p]
                     if len(kw_parts) > 3:
                         clean_kw = "_".join(kw_parts[:3])
-                    clean_auto_name = (auto_name or clean_title).strip()
-                    clean_auto_name = clean_rule_name(clean_auto_name)
                     if not clean_title or clean_title == "null":
                         clean_title = "Shop All"
+                    clean_auto_name = sanitize_final_rule_name(auto_name, clean_title)
                     if not clean_kw or clean_kw == "null":
                         clean_kw = "shop_all"
-                    if not clean_auto_name or clean_auto_name == "null":
-                        clean_auto_name = clean_title
-                    # Limit clean_auto_name to max 4 words
-                    clean_auto_name = " ".join(clean_auto_name.split()[:4])
                     print(f"[AI Match Debug] AI identified unmatched product from video: '{clean_title}' | Auto Name: '{clean_auto_name}' | Keyword: '{clean_kw}'", flush=True)
                     return {"url": "https://www.radikikk.shop/collections/all", "title": clean_title, "auto_name": clean_auto_name, "is_fallback": True}, clean_kw
                 
@@ -7545,10 +7560,7 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     kw_parts = [p for p in clean_kw.split("_") if p]
                     if len(kw_parts) > 3:
                         clean_kw = "_".join(kw_parts[:3])
-                    clean_auto_name = (auto_name or matched_p["title"]).strip()
-                    clean_auto_name = clean_rule_name(clean_auto_name)
-                    # Limit clean_auto_name to max 4 words
-                    clean_auto_name = " ".join(clean_auto_name.split()[:4])
+                    clean_auto_name = sanitize_final_rule_name(auto_name, matched_p["title"])
                     matched_p_copy = dict(matched_p)
                     matched_p_copy["auto_name"] = clean_auto_name
                     print(f"[AI Match Debug] Matched to product: '{matched_p['title']}' | Auto Name: '{clean_auto_name}' | Keyword: '{clean_kw}'", flush=True)
@@ -7557,13 +7569,6 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
             print(f"[AI Match Parse Error] {e}", flush=True)
             
     # Text search fallback (select the product with the highest match count >= 2)
-    STOP_WORDS = {
-        "your", "with", "this", "that", "from", "have", "will", "here", 
-        "there", "about", "good", "best", "great", "like", "more", "just", 
-        "make", "made", "some", "them", "then", "into", "onto", "each",
-        "every", "both", "only", "than", "also", "very", "water", "home",
-        "easy", "clean", "cleaner", "cleaning"
-    }
     
     best_match_p = None
     best_match_count = 0
@@ -7601,7 +7606,7 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         if len(cleaned_words) < 2:
             cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
         clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
-        clean_auto_name = clean_rule_name(clean_auto_name)
+        clean_auto_name = sanitize_final_rule_name(clean_auto_name, best_match_p["title"])
         best_match_p_copy = dict(best_match_p)
         best_match_p_copy["auto_name"] = clean_auto_name
         print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
@@ -7671,7 +7676,21 @@ def ig_bulk_automate():
             
             matched_product, keyword = match_media_to_product(caption, thumbnail, products)
             if not matched_product:
-                continue
+                # Use default fallback product pointing to collections/all instead of skipping!
+                caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
+                caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
+                short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
+                short_title = sanitize_final_rule_name(short_title, short_title)
+                clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
+                clean_kw = clean_keyword_text(clean_kw)
+                
+                matched_product = {
+                    "url": "https://www.radikikk.shop/collections/all",
+                    "title": short_title,
+                    "auto_name": short_title,
+                    "is_fallback": True
+                }
+                keyword = clean_kw
                 
             base_keyword = keyword or "shop_all"
             ig_kw = f"{base_keyword}-ins"
