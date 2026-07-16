@@ -7529,10 +7529,22 @@ def ig_bulk_automate():
         if not media:
             return jsonify({"ok": False, "error": "No Instagram media posts found."})
             
+        # Fetch FB page posts for cross-post matching
+        fb_posts = []
+        try:
+            fb_posts = fetch_page_posts(force=True)
+        except Exception as fb_err:
+            print(f"[Bulk Automate] Failed to fetch FB page posts: {fb_err}", flush=True)
+            
         autos = load_ig_automations()
         existing_post_ids = set()
         for auto in autos:
             existing_post_ids.update(auto.get("post_ids") or [])
+            
+        fb_autos = load_automations()
+        existing_fb_post_ids = set()
+        for auto in fb_autos:
+            existing_fb_post_ids.update(auto.get("post_ids") or [])
             
         non_automated_media = [m for m in media if m["id"] not in existing_post_ids]
         
@@ -7542,6 +7554,8 @@ def ig_bulk_automate():
             return jsonify({"ok": True, "message": "All latest videos/posts are already automated!"})
             
         new_rules_count = 0
+        new_fb_rules_count = 0
+        
         for idx, m in enumerate(target_media):
             if idx > 0:
                 print(f"[Bulk Automate] Sleeping 3 seconds to prevent AI rate limits...", flush=True)
@@ -7551,30 +7565,22 @@ def ig_bulk_automate():
             media_id = m.get("id")
             
             matched_product, keyword = match_media_to_product(caption, thumbnail, products)
+            if not matched_product:
+                continue
+                
+            base_keyword = keyword or "shop_all"
+            ig_kw = f"{base_keyword}-ins"
+            fb_kw = f"{base_keyword}-fb"
             
-            if matched_product:
-                product_url = matched_product["url"]
-                product_title = matched_product["title"]
-                # Truncate rule name to max 3 words
-                title_words = product_title.strip().split()
-                name_3_words = " ".join(title_words[:3])
-                rule_name = f"Auto: {name_3_words}"
-            else:
-                # If no product matches, use collections page as fallback
-                product_url = "https://www.radikikk.shop/collections/all"
-                # Extract first 3 words of the caption for title
-                caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
-                caption_words = caption_clean.split()
-                short_title = " ".join(caption_words[:3]) if caption_words else "Shop All"
-                product_title = short_title
-                # Truncate rule name to max 3 words
-                rule_name = f"Auto: {product_title}"
-                # Generate fallback keyword
-                keyword = "_".join([w.lower() for w in caption_words[:3]]) if caption_words else "shop_all"
-                keyword = re.sub(r"[^a-z0-9_]", "", keyword)
-                if not keyword:
-                    keyword = "shop_all"
+            product_url = matched_product["url"]
+            product_title = matched_product["title"]
             
+            # Truncate rule name to max 2 words (e.g., "Auto: Drawing Robot")
+            title_words = product_title.strip().split()
+            name_2_words = " ".join(title_words[:2]) if title_words else "Shop All"
+            rule_name = f"Auto: {name_2_words}"
+            
+            # ── 1. Create Instagram Auto DM Rule ──
             rule = {
                 "name": rule_name,
                 "created_time": m.get("timestamp") or datetime.datetime.now().isoformat(),
@@ -7613,7 +7619,7 @@ def ig_bulk_automate():
                     },
                     {
                         "title": "Order on WhatsApp",
-                        "url": f"https://wa.me/919895138430?text={keyword}"
+                        "url": f"https://wa.me/919895138430?text={ig_kw}"
                     },
                     {
                         "title": "WhatsApp Channel",
@@ -7624,10 +7630,71 @@ def ig_bulk_automate():
             autos.append(rule)
             new_rules_count += 1
             
+            # ── 2. Match and Create FB Page Comment Rule ──
+            fb_post = None
+            if fb_posts and caption:
+                ig_clean = re.sub(r"[^a-zA-Z0-9]", "", caption).lower()
+                for post in fb_posts:
+                    fb_caption = post.get("message") or ""
+                    fb_clean = re.sub(r"[^a-zA-Z0-9]", "", fb_caption).lower()
+                    if fb_clean == ig_clean:
+                        fb_post = post
+                        break
+                    if len(ig_clean) > 20 and len(fb_clean) > 20:
+                        if ig_clean[:40] == fb_clean[:40]:
+                            fb_post = post
+                            break
+                            
+            if fb_post and fb_post["id"] not in existing_fb_post_ids:
+                # Format reply text with Malayalam string template and URLs
+                fb_reply = (
+                    f"വാട്സാപ്പിൽ പ്രോഡക്റ്റ് ഓർഡർ ചെയ്യാൻ വേണ്ടി ഈ ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക 👇\n"
+                    f"https://wa.me/919895138430?text={fb_kw}\n\n"
+                    f"സൈറ്റ് വഴി ഓർഡർ ചെയ്യാൻ 👇🏻\n"
+                    f"{product_url}"
+                )
+                
+                fb_thumb = fb_post.get("thumbnail") or thumbnail
+                
+                fb_rule = {
+                    "name": rule_name,
+                    "reply": fb_reply,
+                    "reply_texts": [fb_reply],
+                    "action": "comment", # Reply on comment publicly
+                    "dm_message": "",
+                    "trigger_type": "comment",
+                    "scope": "specific",
+                    "post_ids": [fb_post["id"]],
+                    "thumbnail": fb_thumb,
+                    "keyword_type": "any", # any comment trigger
+                    "keywords": [],
+                    "active": True,
+                    "delay_seconds": 0,
+                    "link_url": product_url,
+                    "follow_up_message": "",
+                    "ask_follow": False,
+                    "follow_prompt": "",
+                    "email_capture": False,
+                    "email_prompt": "",
+                    "button_enabled": False,
+                    "button_label": "",
+                    "button_follow_up_message": "",
+                    "link_button_label": "",
+                    "follow_up_steps": [],
+                    "buttons": []
+                }
+                fb_autos.append(fb_rule)
+                existing_fb_post_ids.add(fb_post["id"])
+                new_fb_rules_count += 1
+                print(f"[Bulk Automate] Created matching FB Page rule for post {fb_post['id']}: '{rule_name}'", flush=True)
+                
         if new_rules_count > 0:
             save_ig_automations(autos)
             
-        return jsonify({"ok": True, "message": f"Successfully automated {new_rules_count} latest videos/posts!"})
+        if new_fb_rules_count > 0:
+            save_automations(fb_autos)
+            
+        return jsonify({"ok": True, "message": f"Successfully automated {new_rules_count} Instagram rules and {new_fb_rules_count} Facebook rules!"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
