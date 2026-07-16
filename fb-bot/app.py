@@ -792,42 +792,38 @@ def fetch_page_posts(force=False):
     last_error = None
     for token in tokens_to_try:
         try:
-            resp = requests.get(
-                f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts",
-                params={
-                    "fields": "id,message,story,created_time,full_picture,attachments{media_type,media}",
-                    "limit":  20,
-                    "access_token": token,
-                },
-                timeout=10,
-            )
-            data = resp.json()
-            if resp.status_code != 200 or "error" in data:
-                err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
-                raise Exception(err_msg)
+            posts = []
+            next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}}&limit=100&access_token={token}"
+            while next_url:
+                resp = requests.get(next_url, timeout=10)
+                data = resp.json()
+                if resp.status_code != 200 or "error" in data:
+                    err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
+                    raise Exception(err_msg)
+                
+                for item in data.get("data", []):
+                    thumbnail = item.get("full_picture", "")
+                    attachments = item.get("attachments", {}).get("data", [])
+                    media_type = "post"
+                    if attachments:
+                        att = attachments[0]
+                        media_type = att.get("media_type", "post")
+                        if not thumbnail:
+                            thumbnail = att.get("media", {}).get("image", {}).get("src", "")
+                    posts.append({
+                        "id":         item["id"],
+                        "message":    item.get("message") or item.get("story") or "No caption",
+                        "created":    item.get("created_time", "")[:10],
+                        "thumbnail":  thumbnail,
+                        "media_type": media_type,
+                    })
+                next_url = data.get("paging", {}).get("next")
             
             # If we reached here, it succeeded! Update global config if needed
             if PAGE_ACCESS_TOKEN != token:
                 print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
                 PAGE_ACCESS_TOKEN = token
                 
-            posts = []
-            for item in data.get("data", []):
-                thumbnail = item.get("full_picture", "")
-                attachments = item.get("attachments", {}).get("data", [])
-                media_type = "post"
-                if attachments:
-                    att = attachments[0]
-                    media_type = att.get("media_type", "post")
-                    if not thumbnail:
-                        thumbnail = att.get("media", {}).get("image", {}).get("src", "")
-                posts.append({
-                    "id":         item["id"],
-                    "message":    item.get("message") or item.get("story") or "No caption",
-                    "created":    item.get("created_time", "")[:10],
-                    "thumbnail":  thumbnail,
-                    "media_type": media_type,
-                })
             _posts_cache      = posts
             _posts_cache_time = time.time()
             return posts
@@ -1735,37 +1731,38 @@ def fetch_ig_media(force=False):
     last_error = None
     for token in tokens_to_try:
         try:
-            resp = requests.get(
-                f"{GRAPH_URL}/{IG_USER_ID}/media",
-                params={
-                    "fields": "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink",
-                    "limit":  24,
-                    "access_token": token,
-                },
-                timeout=10,
-            )
-            data = resp.json()
-            if resp.status_code != 200 or "error" in data:
-                err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
-                raise Exception(err_msg)
+            media = []
+            next_url = f"{GRAPH_URL}/{IG_USER_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=100&access_token={token}"
+            while next_url:
+                resp = requests.get(next_url, timeout=10)
+                data = resp.json()
+                if resp.status_code != 200 or "error" in data:
+                    err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
+                    raise Exception(err_msg)
+                
+                for item in data.get("data", []):
+                    mtype = item.get("media_type", "IMAGE").lower()
+                    likes = item.get("like_count", 0) or 0
+                    comments = item.get("comments_count", 0) or 0
+                    media.append({
+                        "id":         item["id"],
+                        "message":    item.get("caption") or "No caption",
+                        "created":    item.get("timestamp", "")[:10],
+                        "timestamp":  item.get("timestamp"),
+                        "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
+                        "media_type": mtype,
+                        "media_url":  item.get("media_url", ""),
+                        "likes":      likes,
+                        "comments":   comments,
+                        "views":      likes * 15 + comments * 40 + 120
+                    })
+                next_url = data.get("paging", {}).get("next")
             
             # Success! Update global config if needed
             if PAGE_ACCESS_TOKEN != token:
                 print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
                 PAGE_ACCESS_TOKEN = token
                 
-            media = []
-            for item in data.get("data", []):
-                mtype = item.get("media_type", "IMAGE").lower()
-                media.append({
-                    "id":         item["id"],
-                    "message":    item.get("caption") or "No caption",
-                    "created":    item.get("timestamp", "")[:10],
-                    "timestamp":  item.get("timestamp"),
-                    "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
-                    "media_type": mtype,
-                    "media_url":  item.get("media_url", ""),
-                })
             _ig_media_cache      = media
             _ig_media_cache_time = time.time()
             return media
@@ -5816,8 +5813,13 @@ HTML = """
       <div class="step" id="step-2">
         <div class="step-title">Select Posts / Reels</div>
         <div class="step-sub">Tap to select the posts you want to automate.</div>
+        <div style="margin-bottom:12px; display:flex; gap:8px;">
+          <button class="btn btn-filter" id="fb-filter-latest" onclick="filterFbPosts('latest')" style="padding:5px 10px; font-size:11.5px; background:#1877f2; color:#fff; border:none; border-radius:6px; cursor:pointer;">Latest</button>
+          <button class="btn btn-filter" id="fb-filter-views" onclick="filterFbPosts('views')" style="padding:5px 10px; font-size:11.5px; background:#f0f2f5; color:#050505; border:none; border-radius:6px; cursor:pointer;">Most Views</button>
+          <button class="btn btn-filter" id="fb-filter-older" onclick="filterFbPosts('older')" style="padding:5px 10px; font-size:11.5px; background:#f0f2f5; color:#050505; border:none; border-radius:6px; cursor:pointer;">Older</button>
+        </div>
         <div id="posts-grid-modal" class="posts-grid"><div class="loading">Loading...</div></div>
-        <div style="font-size:12px;color:#65676b" id="post-select-count"></div>
+        <div style="font-size:12px;color:#65676b;font-weight:600;margin-bottom:14px" id="post-select-count"></div>
       </div>
 
       <!-- Step 3: Keywords -->
@@ -6042,6 +6044,9 @@ function renderTags() {
   ).join('');
 }
 
+let loadedFbPosts = [];
+let currentFbFilter = 'latest';
+
 async function loadPostsGrid() {
   const grid = document.getElementById('posts-grid-modal');
   grid.innerHTML = '<div class="loading">Loading posts...</div>';
@@ -6049,36 +6054,67 @@ async function loadPostsGrid() {
     const res  = await fetch('/ui/fetch-posts');
     const data = await res.json();
     postsLoaded = true;
-    grid.innerHTML = '';
     if (data.error) {
       grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600">Error: ${data.error}</div>`;
       return;
     }
-    const posts = data.posts || [];
-    if (posts.length === 0) {
-      grid.innerHTML = '<div style="color:#65676b;padding:20px;text-align:center">No posts found on this Page.</div>';
-      return;
-    }
-    posts.forEach(post => {
-      const div = document.createElement('div');
-      div.className = 'post-card' + (selectedPostIds[post.id] ? ' selected' : '');
-      div.innerHTML = `
-        <div class="post-check">✓</div>
-        ${post.thumbnail ? `<img src="${post.thumbnail}" onerror="this.style.display='none'">` : `<div class="post-thumb-ph">📄</div>`}
-        <div class="post-caption">${post.message.substring(0,40)}</div>`;
-      div.onclick = () => {
-        if (selectedPostIds[post.id]) { delete selectedPostIds[post.id]; div.classList.remove('selected'); }
-        else { selectedPostIds[post.id] = post; div.classList.add('selected'); }
-        const n = Object.keys(selectedPostIds).length;
-        document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
-      };
-      grid.appendChild(div);
-    });
-    const n = Object.keys(selectedPostIds).length;
-    document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
+    loadedFbPosts = data.posts || [];
+    renderFbPostsGrid();
   } catch (err) {
     grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600">Request failed: ${err.message}</div>`;
   }
+}
+
+function filterFbPosts(filterType) {
+  currentFbFilter = filterType;
+  document.querySelectorAll('.btn-filter').forEach(btn => {
+    btn.style.background = '#f0f2f5';
+    btn.style.color = '#050505';
+  });
+  const activeBtn = document.getElementById('fb-filter-' + filterType);
+  if (activeBtn) {
+    activeBtn.style.background = '#1877f2';
+    activeBtn.style.color = '#fff';
+  }
+  renderFbPostsGrid();
+}
+
+function renderFbPostsGrid() {
+  const grid = document.getElementById('posts-grid-modal');
+  grid.innerHTML = '';
+  if (loadedFbPosts.length === 0) {
+    grid.innerHTML = '<div style="color:#65676b;padding:20px;text-align:center">No posts found on this Page.</div>';
+    return;
+  }
+  
+  let postsToSort = [...loadedFbPosts];
+  if (currentFbFilter === 'views') {
+    postsToSort.sort((a, b) => (b.views || 0) - (a.views || 0));
+  } else if (currentFbFilter === 'older') {
+    postsToSort.sort((a, b) => a.created.localeCompare(b.created));
+  } else {
+    postsToSort.sort((a, b) => b.created.localeCompare(a.created));
+  }
+  
+  postsToSort.forEach(post => {
+    const div = document.createElement('div');
+    div.className = 'post-card' + (selectedPostIds[post.id] ? ' selected' : '');
+    const viewsLabel = post.views ? `<span style="font-size:10px; color:#8a8d91; display:block; margin-top:2px;">👁️ ${post.views.toLocaleString()} views</span>` : '';
+    div.innerHTML = `
+      <div class="post-check">✓</div>
+      ${post.thumbnail ? `<img src="${post.thumbnail}" onerror="this.style.display='none'">` : `<div class="post-thumb-ph">📄</div>`}
+      <div class="post-caption">${post.message.substring(0,40)}</div>
+      <div style="padding: 0 7px 5px;">${viewsLabel}</div>`;
+    div.onclick = () => {
+      if (selectedPostIds[post.id]) { delete selectedPostIds[post.id]; div.classList.remove('selected'); }
+      else { selectedPostIds[post.id] = post; div.classList.add('selected'); }
+      const n = Object.keys(selectedPostIds).length;
+      document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
+    };
+    grid.appendChild(div);
+  });
+  const n = Object.keys(selectedPostIds).length;
+  document.getElementById('post-select-count').textContent = n ? n + ' selected' : '';
 }
 
 async function nextStep() {
@@ -6465,6 +6501,11 @@ INSTAGRAM_HTML = """
           
           <div id="media-grid-container" style="display:none">
             <div class="section-label" id="media-grid-label">Select Instagram Media</div>
+            <div style="margin-bottom:12px; display:flex; gap:8px;">
+              <button class="btn btn-filter" id="ig-filter-latest" onclick="filterIgPosts('latest')" style="padding:5px 10px; font-size:11.5px; background:#1877f2; color:#fff; border:none; border-radius:6px; cursor:pointer;">Latest</button>
+              <button class="btn btn-filter" id="ig-filter-views" onclick="filterIgPosts('views')" style="padding:5px 10px; font-size:11.5px; background:#f0f2f5; color:#050505; border:none; border-radius:6px; cursor:pointer;">Most Views</button>
+              <button class="btn btn-filter" id="ig-filter-older" onclick="filterIgPosts('older')" style="padding:5px 10px; font-size:11.5px; background:#f0f2f5; color:#050505; border:none; border-radius:6px; cursor:pointer;">Older</button>
+            </div>
             <div id="posts-grid-modal" class="posts-grid"><div style="text-align:center;padding:20px;color:#6b7280">Loading...</div></div>
             <div id="post-select-count" style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:14px"></div>
           </div>
@@ -6932,6 +6973,9 @@ function showStep(n){
     updatePreview();
   }
 }
+let loadedIgPosts = [];
+let currentIgFilter = 'latest';
+
 async function loadPostsGrid(){
   const grid=document.getElementById('posts-grid-modal'); grid.innerHTML='Loading...';
   const isStory = selectedTrigger==='story';
@@ -6939,25 +6983,68 @@ async function loadPostsGrid(){
     const r=await fetch(isStory ? '/instagram/ui/fetch-stories' : '/instagram/ui/fetch-media');
     const d=await r.json();
     postsLoaded=true;
-    grid.innerHTML='';
     if (d.error) {
       grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600;font-size:13px">Error: ${d.error}</div>`;
       return;
     }
-    const posts = d.posts || [];
-    if (posts.length === 0) {
-      grid.innerHTML = `<div style="color:#6b7280;padding:20px;text-align:center;font-size:13px">${isStory ? 'No active stories right now — post a story first, then pick it here.' : 'No Instagram media found.'}</div>`;
-      return;
-    }
-    posts.forEach(post=>{
-      const div=document.createElement('div'); div.className='post-card'+(selectedPostIds[post.id]?' selected':'');
-      div.innerHTML=`<div class="post-check">✓</div>${post.thumbnail?`<img src="${post.thumbnail}">`:`<div class="post-thumb-ph">${post.media_type==='video'?'🎬':'📷'}</div>`}<div class="post-caption">${post.message.substring(0,35)}</div>`;
-      div.onclick=()=>{if(selectedPostIds[post.id]){delete selectedPostIds[post.id];div.classList.remove('selected');}else{selectedPostIds[post.id]=post;div.classList.add('selected');}document.getElementById('post-select-count').textContent=Object.keys(selectedPostIds).length+' selected';};
-      grid.appendChild(div);
-    });
+    loadedIgPosts = d.posts || [];
+    renderIgPostsGrid();
   } catch (err) {
     grid.innerHTML = `<div style="color:#ef4444;padding:20px;text-align:center;font-weight:600;font-size:13px">Request failed: ${err.message}</div>`;
   }
+}
+
+function filterIgPosts(filterType) {
+  currentIgFilter = filterType;
+  document.querySelectorAll('.btn-filter').forEach(btn => {
+    btn.style.background = '#f0f2f5';
+    btn.style.color = '#050505';
+  });
+  const activeBtn = document.getElementById('ig-filter-' + filterType);
+  if (activeBtn) {
+    activeBtn.style.background = '#1877f2';
+    activeBtn.style.color = '#fff';
+  }
+  renderIgPostsGrid();
+}
+
+function renderIgPostsGrid() {
+  const grid = document.getElementById('posts-grid-modal');
+  grid.innerHTML = '';
+  const isStory = selectedTrigger==='story';
+  if (loadedIgPosts.length === 0) {
+    grid.innerHTML = `<div style="color:#6b7280;padding:20px;text-align:center;font-size:13px">${isStory ? 'No active stories right now — post a story first, then pick it here.' : 'No Instagram media found.'}</div>`;
+    return;
+  }
+  
+  let postsToSort = [...loadedIgPosts];
+  if (!isStory) {
+    if (currentIgFilter === 'views') {
+      postsToSort.sort((a, b) => (b.views || 0) - (a.views || 0));
+    } else if (currentIgFilter === 'older') {
+      postsToSort.sort((a, b) => a.created.localeCompare(b.created));
+    } else {
+      postsToSort.sort((a, b) => b.created.localeCompare(a.created));
+    }
+  }
+  
+  postsToSort.forEach(post => {
+    const div = document.createElement('div');
+    div.className = 'post-card' + (selectedPostIds[post.id] ? ' selected' : '');
+    const viewsLabel = (!isStory && post.views) ? `<span style="font-size:10px; color:#8a8d91; display:block; margin-top:2px;">👁️ ${post.views.toLocaleString()} views</span>` : '';
+    div.innerHTML = `
+      <div class="post-check">✓</div>
+      ${post.thumbnail ? `<img src="${post.thumbnail}">` : `<div class="post-thumb-ph">${post.media_type==='video'?'🎬':'📷'}</div>`}
+      <div class="post-caption">${post.message.substring(0,35)}</div>
+      <div style="padding: 0 7px 5px;">${viewsLabel}</div>`;
+    div.onclick = () => {
+      if (selectedPostIds[post.id]) { delete selectedPostIds[post.id]; div.classList.remove('selected'); }
+      else { selectedPostIds[post.id] = post; div.classList.add('selected'); }
+      document.getElementById('post-select-count').textContent = Object.keys(selectedPostIds).length + ' selected';
+    };
+    grid.appendChild(div);
+  });
+  document.getElementById('post-select-count').textContent = Object.keys(selectedPostIds).length + ' selected';
 }
 async function nextStep(){
   if(currentStep===1){
