@@ -18,11 +18,9 @@ COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
 # Install Python deps
-COPY yt-bot/requirements.txt ./yt-bot/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages \
-    flask google-api-python-client google-auth-oauthlib requests python-dotenv openai google-genai || \
-    pip3 install --no-cache-dir \
-    flask google-api-python-client google-auth-oauthlib requests python-dotenv openai google-genai
+COPY requirements.txt ./
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt || \
+    pip3 install --no-cache-dir -r requirements.txt
 
 # ── Stage 2: Final image ───────────────────────────────────────────────────
 FROM node:20-slim
@@ -41,10 +39,9 @@ RUN apt-get update && \
 COPY --from=builder /app/node_modules ./node_modules
 
 # Install Python packages in final image
-RUN pip3 install --no-cache-dir --break-system-packages \
-    flask google-api-python-client google-auth-oauthlib requests python-dotenv openai google-genai || \
-    pip3 install --no-cache-dir \
-    flask google-api-python-client google-auth-oauthlib requests python-dotenv openai google-genai
+COPY --from=builder /app/requirements.txt ./requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt || \
+    pip3 install --no-cache-dir -r requirements.txt
 
 # Copy all source files
 COPY . .
