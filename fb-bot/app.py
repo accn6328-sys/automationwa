@@ -7372,14 +7372,23 @@ Here is the list of products in our Shopify store:
 {products_list_str}
 
 Your task:
-1. Find the Shopify product that matches the reel/post best based on the caption and/or the image.
-2. If NO product in the list matches the post, you MUST return null for all fields (product_id: null, product_title: null, product_handle: null, keyword: null). Do NOT guess, do NOT choose a random product, and do NOT fallback to a 'general' product if there is no clear match.
-3. If a match is found, generate a unique, short, lowercase keyword for this product (e.g. for "pencil brush", generate "pencil_brush"). It must be snake_case (lowercase, letters, numbers, and underscores only).
+1. Check if the product in the reel/post matches any product in our Shopify list.
+2. If it MATCHES a Shopify product:
+   - "product_id": The exact Shopify product ID from the list.
+   - "product_title": The exact Shopify product title from the list.
+   - "product_handle": The exact Shopify product handle from the list.
+   - "keyword": A unique, short, lowercase snake_case keyword for this product (e.g., "pencil_brush").
+3. If it does NOT match any Shopify product in the list:
+   - Identify the product shown in the reel/post from the caption and/or image (e.g. if it shows cheese grating, the product is "Cheese Grater").
+   - "product_id": null
+   - "product_title": The identified product name (max 3 words, e.g., "Cheese Grater", "Washing Machine").
+   - "product_handle": null
+   - "keyword": A unique, short, lowercase snake_case keyword generated based on the identified product name (e.g., "cheese_grater", "washing_machine").
 
 You MUST respond with a JSON object in this format:
 {{
   "product_id": "Shopify product ID or null",
-  "product_title": "Shopify product title or null",
+  "product_title": "Shopify product title or the identified product name",
   "product_handle": "Shopify product handle or null",
   "keyword": "generated_keyword"
 }}
@@ -7408,10 +7417,16 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 handle = data.get("product_handle")
                 kw = data.get("keyword")
                 
-                # Check for null values to avoid false matching
+                # Check for null values indicating an unmatched product, but we STILL return it!
                 if pid is None or pid == "null" or handle is None or handle == "null":
-                    print("[AI Match Debug] AI resolved this post to NO product match (returned null).", flush=True)
-                    return None, None
+                    clean_title = (title or "").strip()
+                    clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
+                    if not clean_title or clean_title == "null":
+                        clean_title = "Shop All"
+                    if not clean_kw or clean_kw == "null":
+                        clean_kw = "shop_all"
+                    print(f"[AI Match Debug] AI identified unmatched product from video: '{clean_title}' | Keyword: '{clean_kw}'", flush=True)
+                    return {"url": "https://www.radikikk.shop/collections/all", "title": clean_title, "is_fallback": True}, clean_kw
                 
                 matched_p = None
                 if pid:
@@ -7463,9 +7478,14 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Match count: {best_match_count}", flush=True)
         return best_match_p, clean_kw
             
-    # Do not return fallback_p to avoid duplicate inaccurate rules
-    print("[AI Match Debug] No product matched this post. Skipping automation.", flush=True)
-    return None, None
+    # Last resort fallback: extract product name from caption using simple NLP logic
+    caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
+    caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
+    short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
+    clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
+    clean_kw = re.sub(r"[^a-z0-9_]", "", clean_kw) or "shop_all"
+    print(f"[AI Match Debug] No product matched. Fallback to caption words: '{short_title}' | Keyword: '{clean_kw}'", flush=True)
+    return {"url": "https://www.radikikk.shop/collections/all", "title": short_title, "is_fallback": True}, clean_kw
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
 def ig_bulk_automate():
