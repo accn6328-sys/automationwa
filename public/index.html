@@ -2037,12 +2037,12 @@ let igwzData = {
   emailCapture: false,
   emailPrompt: '',
   linkUrl: '',
-  delaySeconds: 0
+  delaySeconds: 30
 };
 
 function openCreateIgRuleModal() {
   editingIgRuleIdx = null;
-  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', publicReplyTexts:[], askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:0 };
+  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', publicReplyTexts:[], askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:30 };
   igwzGoToStep(1);
   igwzReset();
   document.getElementById('ig-rule-modal').classList.add('open');
@@ -2188,8 +2188,8 @@ function igwzReset() {
   document.getElementById('sp-dm-type').value = 'text_button';
   toggleSpDMTypeFields();
   
-  document.getElementById('sp-delay-val').value = '1';
-  document.getElementById('sp-delay-unit').value = 'minutes';
+  document.getElementById('sp-delay-val').value = '30';
+  document.getElementById('sp-delay-unit').value = 'seconds';
   spUpdateDelaySeconds();
   spUpdateDMCharCounter();
   spWizardButtons = [

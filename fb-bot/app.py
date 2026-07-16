@@ -7672,7 +7672,7 @@ def ig_bulk_automate():
                 "keyword_type": "any",
                 "keywords": [],
                 "active": True,
-                "delay_seconds": 0,
+                "delay_seconds": 30,
                 "link_url": product_url,
                 "follow_up_message": "",
                 "ask_follow": False,
@@ -7741,7 +7741,7 @@ def ig_bulk_automate():
                     "keyword_type": "any", # any comment trigger
                     "keywords": [],
                     "active": True,
-                    "delay_seconds": 0,
+                    "delay_seconds": 30,
                     "link_url": product_url,
                     "follow_up_message": "",
                     "ask_follow": False,
