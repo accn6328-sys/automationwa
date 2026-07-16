@@ -7411,12 +7411,16 @@ Your task:
    - "product_handle": null
    - "keyword": A unique, short, lowercase snake_case keyword generated based on the identified product name (e.g., "cheese_grater", "washing_machine").
 
+4. Generate a clean, natural automation name for the product based on the caption and product details:
+   - "automation_name": A short descriptive name (minimum 2 words, maximum 4 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for "2 in 1 Portable Laundry Soap Roller Box...", name it "portable laundry soap roller".
+
 You MUST respond with a JSON object in this format:
 {{
   "product_id": "Shopify product ID or null",
   "product_title": "Shopify product title or the identified product name",
   "product_handle": "Shopify product handle or null",
-  "keyword": "generated_keyword"
+  "keyword": "generated_keyword",
+  "automation_name": "clean_automation_name"
 }}
 Return ONLY the raw JSON. Do not include markdown code block wraps.
 """
@@ -7442,17 +7446,23 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 title = data.get("product_title")
                 handle = data.get("product_handle")
                 kw = data.get("keyword")
+                auto_name = data.get("automation_name")
                 
                 # Check for null values indicating an unmatched product, but we STILL return it!
                 if pid is None or pid == "null" or handle is None or handle == "null":
                     clean_title = (title or "").strip()
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
+                    clean_auto_name = (auto_name or clean_title).strip()
                     if not clean_title or clean_title == "null":
                         clean_title = "Shop All"
                     if not clean_kw or clean_kw == "null":
                         clean_kw = "shop_all"
-                    print(f"[AI Match Debug] AI identified unmatched product from video: '{clean_title}' | Keyword: '{clean_kw}'", flush=True)
-                    return {"url": "https://www.radikikk.shop/collections/all", "title": clean_title, "is_fallback": True}, clean_kw
+                    if not clean_auto_name or clean_auto_name == "null":
+                        clean_auto_name = clean_title
+                    # Limit clean_auto_name to max 4 words
+                    clean_auto_name = " ".join(clean_auto_name.split()[:4])
+                    print(f"[AI Match Debug] AI identified unmatched product from video: '{clean_title}' | Auto Name: '{clean_auto_name}' | Keyword: '{clean_kw}'", flush=True)
+                    return {"url": "https://www.radikikk.shop/collections/all", "title": clean_title, "auto_name": clean_auto_name, "is_fallback": True}, clean_kw
                 
                 matched_p = None
                 if pid:
@@ -7466,8 +7476,13 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
                     if not clean_kw:
                         clean_kw = re.sub(r"[^a-z0-9_]", "", matched_p["handle"].replace("-", "_"))
-                    print(f"[AI Match Debug] Matched to product: '{matched_p['title']}' | Keyword: '{clean_kw}'", flush=True)
-                    return matched_p, clean_kw
+                    clean_auto_name = (auto_name or matched_p["title"]).strip()
+                    # Limit clean_auto_name to max 4 words
+                    clean_auto_name = " ".join(clean_auto_name.split()[:4])
+                    matched_p_copy = dict(matched_p)
+                    matched_p_copy["auto_name"] = clean_auto_name
+                    print(f"[AI Match Debug] Matched to product: '{matched_p['title']}' | Auto Name: '{clean_auto_name}' | Keyword: '{clean_kw}'", flush=True)
+                    return matched_p_copy, clean_kw
         except Exception as e:
             print(f"[AI Match Parse Error] {e}", flush=True)
             
@@ -7501,8 +7516,21 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 
     if best_match_p:
         clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
-        print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Match count: {best_match_count}", flush=True)
-        return best_match_p, clean_kw
+        # Parse fallback title
+        words = best_match_p["title"].strip().split()
+        cleaned_words = []
+        brand_words = {"sakar", "fayleeko", "rubic", "adkd", "large", "stainless", "hybrid", "2-in-1", "3-in-1", "2 in 1", "3 in 1"}
+        for w in words:
+            w_clean = re.sub(r"[^a-zA-Z0-9]", "", w).lower()
+            if w_clean not in brand_words and w.lower() not in brand_words:
+                cleaned_words.append(w)
+        if len(cleaned_words) < 2:
+            cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
+        clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
+        best_match_p_copy = dict(best_match_p)
+        best_match_p_copy["auto_name"] = clean_auto_name
+        print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
+        return best_match_p_copy, clean_kw
             
     # Last resort fallback: extract product name from caption using simple NLP logic
     caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
@@ -7511,7 +7539,7 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
     clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
     clean_kw = re.sub(r"[^a-z0-9_]", "", clean_kw) or "shop_all"
     print(f"[AI Match Debug] No product matched. Fallback to caption words: '{short_title}' | Keyword: '{clean_kw}'", flush=True)
-    return {"url": "https://www.radikikk.shop/collections/all", "title": short_title, "is_fallback": True}, clean_kw
+    return {"url": "https://www.radikikk.shop/collections/all", "title": short_title, "auto_name": short_title, "is_fallback": True}, clean_kw
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
 def ig_bulk_automate():
@@ -7575,10 +7603,11 @@ def ig_bulk_automate():
             product_url = matched_product["url"]
             product_title = matched_product["title"]
             
-            # Truncate rule name to max 2 words (e.g., "Auto: Drawing Robot")
-            title_words = product_title.strip().split()
-            name_2_words = " ".join(title_words[:2]) if title_words else "Shop All"
-            rule_name = f"Auto: {name_2_words}"
+            # Use AI automation name directly (ignoring brand names and generic descriptors, max 4, min 2 words)
+            rule_name = matched_product.get("auto_name")
+            if not rule_name:
+                title_words = product_title.strip().split()
+                rule_name = " ".join(title_words[:2]) if title_words else "Shop All"
             
             # ── 1. Create Instagram Auto DM Rule ──
             rule = {
