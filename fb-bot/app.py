@@ -9095,7 +9095,21 @@ def load_processed_videos():
                 return set(json.load(f))
         except:
             pass
-    return set()
+            
+    # First-time setup: seed with existing posts to avoid processing old reels on container start
+    print("[IG Video to Shopify Worker] First-time setup: Seeding existing Instagram Reels...", flush=True)
+    existing_ids = set()
+    try:
+        media = fetch_ig_media(force=True)
+        for item in media:
+            if item.get("media_type", "").upper() == "VIDEO":
+                existing_ids.add(item["id"])
+        save_processed_videos(existing_ids)
+        print(f"[IG Video to Shopify Worker] Seeded {len(existing_ids)} existing Reel IDs.", flush=True)
+    except Exception as e:
+        print(f"[IG Video to Shopify Worker Warning] Seeding failed: {e}", flush=True)
+        
+    return existing_ids
 
 def save_processed_videos(processed_set):
     try:
