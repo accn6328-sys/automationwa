@@ -9193,6 +9193,15 @@ def process_latest_ig_video():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+@app.route("/debug/pip-list", methods=["GET"])
+def debug_pip_list():
+    import subprocess
+    try:
+        out = subprocess.check_output([sys.executable, "-m", "pip", "list"]).decode("utf-8")
+        return jsonify({"ok": True, "pip_list": out})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     import threading
