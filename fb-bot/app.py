@@ -9212,6 +9212,14 @@ def debug_pip_list():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+@app.route("/debug/requirements-content", methods=["GET"])
+def debug_requirements_content():
+    try:
+        with open("../requirements.txt", "r", encoding="utf-8") as f:
+            return jsonify({"ok": True, "content": repr(f.read())})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     import threading
