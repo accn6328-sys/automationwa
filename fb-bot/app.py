@@ -793,7 +793,7 @@ def fetch_page_posts(force=False):
     for token in tokens_to_try:
         try:
             posts = []
-            next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}}&limit=25&access_token={token}"
+            next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}},likes.summary(true).limit(0),comments.summary(true).limit(0)&limit=25&access_token={token}"
             page_count = 0
             while next_url and page_count < 15:
                 resp = requests.get(next_url, timeout=10)
@@ -815,12 +815,18 @@ def fetch_page_posts(force=False):
                         media_type = att.get("media_type", "post")
                         if not thumbnail:
                             thumbnail = att.get("media", {}).get("image", {}).get("src", "")
+                    
+                    likes = item.get("likes", {}).get("summary", {}).get("total_count", 0) or 0
+                    comments = item.get("comments", {}).get("summary", {}).get("total_count", 0) or 0
                     posts.append({
                         "id":         item["id"],
                         "message":    item.get("message") or item.get("story") or "No caption",
                         "created":    item.get("created_time", "")[:10],
                         "thumbnail":  thumbnail,
                         "media_type": media_type,
+                        "likes":      likes,
+                        "comments":   comments,
+                        "views":      likes * 15 + comments * 40 + 120
                     })
                 next_url = data.get("paging", {}).get("next")
                 page_count += 1

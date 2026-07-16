@@ -1091,6 +1091,11 @@
           </div>
           <!-- Post thumbnail grid (shown when Specific Posts is selected) -->
           <div id="igwz-post-grid-wrap" style="display:none;margin-top:10px">
+            <div style="margin-bottom:12px; display:flex; gap:8px;">
+              <button type="button" class="igwz-filter-btn" id="igwz-filter-latest" onclick="filterWzIgPosts('latest')" style="padding:6px 12px; font-size:11.5px; background:#7c5cff; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600; font-family:inherit;">Latest</button>
+              <button type="button" class="igwz-filter-btn" id="igwz-filter-views" onclick="filterWzIgPosts('views')" style="padding:6px 12px; font-size:11.5px; background:rgba(255,255,255,0.08); color:#a0aec0; border:none; border-radius:6px; cursor:pointer; font-weight:600; font-family:inherit;">Most Views</button>
+              <button type="button" class="igwz-filter-btn" id="igwz-filter-older" onclick="filterWzIgPosts('older')" style="padding:6px 12px; font-size:11.5px; background:rgba(255,255,255,0.08); color:#a0aec0; border:none; border-radius:6px; cursor:pointer; font-weight:600; font-family:inherit;">Older</button>
+            </div>
             <div id="igwz-post-grid" style="
               display:grid;
               grid-template-columns:repeat(3,1fr);
@@ -2289,6 +2294,9 @@ async function igwzSelectScope(scope) {
   }
 }
 
+let loadedWzIgPosts = [];
+let currentWzIgFilter = 'latest';
+
 async function igwzLoadPosts() {
   const grid = document.getElementById('igwz-post-grid');
   const isStory = (igwzData.type === 'story');
@@ -2297,65 +2305,100 @@ async function igwzLoadPosts() {
     const res = await fetch(isStory ? '/fb/instagram/ui/fetch-stories' : '/fb/instagram/ui/fetch-media');
     const data = await res.json();
     igwzPostsLoaded = true;
-    grid.innerHTML = '';
     if (data.error) {
       grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#ef4444;font-size:13px">&#x26A0; ${data.error}</div>`;
       return;
     }
-    const posts = data.posts || [];
-    if (posts.length === 0) {
-      grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#6b7280;font-size:13px">${isStory ? 'No active stories right now — post a story first, then pick it here.' : 'No Instagram posts found.'}</div>`;
-      return;
-    }
-    posts.forEach(post => {
-      const isSelected = !!igwzSelectedPostIds[post.id];
-      const card = document.createElement('div');
-      card.style.cssText = `
-        position:relative;
-        border-radius:10px;
-        overflow:hidden;
-        cursor:pointer;
-        border:2px solid ${isSelected ? '#7c5cff' : 'rgba(255,255,255,0.08)'};
-        background:#1a1f35;
-        aspect-ratio:1;
-        transition:border-color 0.18s;
-      `;
-      card.id = 'igwz-post-' + post.id;
-      if (post.thumbnail) {
-        card.innerHTML = `
-          <img src="${post.thumbnail}" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy">
-          <div style="position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));font-size:10px;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${post.media_type === 'video' ? '&#x1F3AC; ' : '&#x1F4F7; '}${(post.message||'').substring(0,30)}</div>
-          <div class="igwz-post-check" id="chk-${post.id}" style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:${isSelected?'#7c5cff':'rgba(0,0,0,0.5)'};border:2px solid ${isSelected?'#7c5cff':'rgba(255,255,255,0.4)'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;transition:all 0.18s">${isSelected?'&#x2713;':''}</div>
-        `;
-      } else {
-        card.innerHTML = `
-          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px">${post.media_type === 'video' ? '&#x1F3AC;' : '&#x1F4F7;'}</div>
-          <div style="position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));font-size:10px;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${(post.message||'').substring(0,30)}</div>
-          <div class="igwz-post-check" id="chk-${post.id}" style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:${isSelected?'#7c5cff':'rgba(0,0,0,0.5)'};border:2px solid ${isSelected?'#7c5cff':'rgba(255,255,255,0.4)'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;transition:all 0.18s">${isSelected?'&#x2713;':''}</div>
-        `;
-      }
-      card.onclick = () => {
-        if (igwzSelectedPostIds[post.id]) {
-          delete igwzSelectedPostIds[post.id];
-          card.style.borderColor = 'rgba(255,255,255,0.08)';
-          const chk = document.getElementById('chk-' + post.id);
-          if (chk) { chk.style.background='rgba(0,0,0,0.5)'; chk.style.borderColor='rgba(255,255,255,0.4)'; chk.innerHTML=''; }
-        } else {
-          igwzSelectedPostIds[post.id] = post;
-          card.style.borderColor = '#7c5cff';
-          const chk = document.getElementById('chk-' + post.id);
-          if (chk) { chk.style.background='#7c5cff'; chk.style.borderColor='#7c5cff'; chk.innerHTML='&#x2713;'; }
-        }
-        igwzData.post_ids = Object.keys(igwzSelectedPostIds);
-        const count = igwzData.post_ids.length;
-        const isStory = (igwzData.type === 'story');
-        document.getElementById('igwz-post-count').textContent = count > 0 ? `${count} ${isStory ? 'story' : 'post'}${count>1 ? (isStory ? 'ies' : 's') : ''} selected` : '';
-      };
-      grid.appendChild(card);
-    });
+    loadedWzIgPosts = data.posts || [];
+    renderWzIgPostsGrid();
   } catch(err) {
     grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#ef4444;font-size:13px">&#x26A0; Failed to load: ${err.message}</div>`;
   }
+}
+
+function filterWzIgPosts(filterType) {
+  currentWzIgFilter = filterType;
+  document.querySelectorAll('.igwz-filter-btn').forEach(btn => {
+    btn.style.background = 'rgba(255,255,255,0.08)';
+    btn.style.color = '#a0aec0';
+  });
+  const activeBtn = document.getElementById('igwz-filter-' + filterType);
+  if (activeBtn) {
+    activeBtn.style.background = '#7c5cff';
+    activeBtn.style.color = '#fff';
+  }
+  renderWzIgPostsGrid();
+}
+
+function renderWzIgPostsGrid() {
+  const grid = document.getElementById('igwz-post-grid');
+  grid.innerHTML = '';
+  const isStory = (igwzData.type === 'story');
+  if (loadedWzIgPosts.length === 0) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#6b7280;font-size:13px">${isStory ? 'No active stories right now — post a story first, then pick it here.' : 'No Instagram posts found.'}</div>`;
+    return;
+  }
+  
+  let postsToSort = [...loadedWzIgPosts];
+  if (!isStory) {
+    if (currentWzIgFilter === 'views') {
+      postsToSort.sort((a, b) => (b.views || 0) - (a.views || 0));
+    } else if (currentWzIgFilter === 'older') {
+      postsToSort.sort((a, b) => a.created.localeCompare(b.created));
+    } else {
+      postsToSort.sort((a, b) => b.created.localeCompare(a.created));
+    }
+  }
+  
+  postsToSort.forEach(post => {
+    const isSelected = !!igwzSelectedPostIds[post.id];
+    const card = document.createElement('div');
+    card.style.cssText = `
+      position:relative;
+      border-radius:10px;
+      overflow:hidden;
+      cursor:pointer;
+      border:2px solid ${isSelected ? '#7c5cff' : 'rgba(255,255,255,0.08)'};
+      background:#1a1f35;
+      aspect-ratio:1;
+      transition:border-color 0.18s;
+    `;
+    card.id = 'igwz-post-' + post.id;
+    const viewsLabel = (!isStory && post.views) ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,0,0,0.6);padding:2px 4px;border-radius:4px;font-size:8.5px;color:#fff;">👁️ ${post.views.toLocaleString()}</div>` : '';
+    if (post.thumbnail) {
+      card.innerHTML = `
+        <img src="${post.thumbnail}" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy">
+        ${viewsLabel}
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));font-size:10px;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${post.media_type === 'video' ? '&#x1F3AC; ' : '&#x1F4F7; '}${(post.message||'').substring(0,30)}</div>
+        <div class="igwz-post-check" id="chk-${post.id}" style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:${isSelected?'#7c5cff':'rgba(0,0,0,0.5)'};border:2px solid ${isSelected?'#7c5cff':'rgba(255,255,255,0.4)'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;transition:all 0.18s">${isSelected?'&#x2713;':''}</div>
+      `;
+    } else {
+      card.innerHTML = `
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px">${post.media_type === 'video' ? '&#x1F3AC;' : '&#x1F4F7;'}</div>
+        ${viewsLabel}
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));font-size:10px;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${(post.message||'').substring(0,30)}</div>
+        <div class="igwz-post-check" id="chk-${post.id}" style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:${isSelected?'#7c5cff':'rgba(0,0,0,0.5)'};border:2px solid ${isSelected?'#7c5cff':'rgba(255,255,255,0.4)'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;transition:all 0.18s">${isSelected?'&#x2713;':''}</div>
+      `;
+    }
+    card.onclick = () => {
+      if (igwzSelectedPostIds[post.id]) {
+        delete igwzSelectedPostIds[post.id];
+        card.style.borderColor = 'rgba(255,255,255,0.08)';
+        const chk = document.getElementById('chk-' + post.id);
+        if (chk) { chk.style.background='rgba(0,0,0,0.5)'; chk.style.borderColor='rgba(255,255,255,0.4)'; chk.innerHTML=''; }
+      } else {
+        igwzSelectedPostIds[post.id] = post;
+        card.style.borderColor = '#7c5cff';
+        const chk = document.getElementById('chk-' + post.id);
+        if (chk) { chk.style.background='#7c5cff'; chk.style.borderColor='#7c5cff'; chk.innerHTML='&#x2713;'; }
+      }
+      igwzData.post_ids = Object.keys(igwzSelectedPostIds);
+      const count = igwzData.post_ids.length;
+      const isStory = (igwzData.type === 'story');
+      document.getElementById('igwz-post-count').textContent = count > 0 ? `${count} ${isStory ? 'story' : 'post'}${count>1 ? (isStory ? 'ies' : 's') : ''} selected` : '';
+    };
+    grid.appendChild(card);
+  });
 }
 
 function igwzSelectTrigger(trigger) {
