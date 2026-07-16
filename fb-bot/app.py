@@ -9204,6 +9204,13 @@ def debug_pip_list():
                 [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "../requirements.txt"],
                 stderr=subprocess.STDOUT
             ).decode("utf-8")
+            
+            # Install Playwright browser binaries
+            playwright_out = subprocess.check_output(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                stderr=subprocess.STDOUT
+            ).decode("utf-8")
+            install_out += f"\nPlaywright: {playwright_out}"
         except Exception as err:
             install_out = f"Install failed: {err}\nOutput: {getattr(err, 'output', b'').decode('utf-8')}"
             
