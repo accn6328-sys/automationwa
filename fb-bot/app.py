@@ -5698,7 +5698,14 @@ HTML = """
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Comment Automations</h2></div>
+    <div class="card-header">
+      <h2>Comment Automations</h2>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:13px; color:#65676b;">Clear latest:</span>
+        <input type="number" id="clear-latest-count" value="5" min="1" style="width: 50px; border: 1px solid #ccd0d5; border-radius: 6px; padding: 4px 6px; text-align: center; font-size: 13px;">
+        <button class="btn btn-danger" onclick="clearLatestAutomations()" style="padding: 5px 10px; font-size: 12px; background:#ff4d4f; color:#fff; border:none; border-radius:6px; cursor:pointer;">Clear Rules</button>
+      </div>
+    </div>
     {% for auto in automations %}
     <div class="auto-item">
       {% if auto.get('thumbnail') %}
@@ -6114,6 +6121,23 @@ async function deleteAuto(idx) {
   if (!confirm('Delete this automation?')) return;
   await fetch('/ui/automations/' + idx, {method: 'DELETE'});
   location.reload();
+}
+
+async function clearLatestAutomations() {
+  const count = parseInt(document.getElementById('clear-latest-count').value) || 5;
+  if (!confirm('Are you sure you want to delete the last ' + count + ' Facebook rules?')) return;
+  const res = await fetch('/ui/automations/clear-latest', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({count})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    alert(data.message || 'Cleared successfully!');
+    location.reload();
+  } else {
+    alert('Error: ' + (data.error || 'Failed to clear'));
+  }
 }
 
 async function addGlobalKeyword() {
@@ -7116,6 +7140,24 @@ def delete_automation(idx):
         save_automations(autos)
     return jsonify({"ok": True})
 
+@app.route("/ui/automations/clear-latest", methods=["POST"])
+def clear_latest_automations():
+    try:
+        payload = request.json or {}
+        count = int(payload.get("count", 5))
+        if count < 1:
+            return jsonify({"ok": False, "error": "Count must be at least 1"})
+        autos = load_automations()
+        if len(autos) > 0:
+            if count >= len(autos):
+                autos = []
+            else:
+                autos = autos[:-count]
+            save_automations(autos)
+        return jsonify({"ok": True, "message": f"Successfully deleted the last {count} Facebook rules!"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 @app.route("/ui/automations/<int:idx>/toggle", methods=["POST"])
 def toggle_automation(idx):
     data  = request.json
@@ -7733,6 +7775,24 @@ def ig_clear_all_automations():
     try:
         save_ig_automations([])
         return jsonify({"ok": True, "message": "Successfully cleared all Instagram automation rules!"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route("/instagram/ui/automations/clear-latest", methods=["POST"])
+def ig_clear_latest_automations():
+    try:
+        payload = request.json or {}
+        count = int(payload.get("count", 5))
+        if count < 1:
+            return jsonify({"ok": False, "error": "Count must be at least 1"})
+        autos = load_ig_automations()
+        if len(autos) > 0:
+            if count >= len(autos):
+                autos = []
+            else:
+                autos = autos[:-count]
+            save_ig_automations(autos)
+        return jsonify({"ok": True, "message": f"Successfully deleted the last {count} Instagram rules!"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
