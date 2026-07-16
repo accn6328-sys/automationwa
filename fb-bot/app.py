@@ -163,7 +163,8 @@ def init_sqlite_db():
         button_follow_up_message TEXT,
         link_button_label TEXT,
         follow_up_steps TEXT,
-        buttons TEXT
+        buttons TEXT,
+        created_time TEXT
     );
     CREATE TABLE IF NOT EXISTS fb_automations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,6 +297,8 @@ def init_sqlite_db():
                 cursor.execute("ALTER TABLE ig_automations ADD COLUMN follow_up_steps TEXT")
             if "buttons" not in cols:
                 cursor.execute("ALTER TABLE ig_automations ADD COLUMN buttons TEXT")
+            if "created_time" not in cols:
+                cursor.execute("ALTER TABLE ig_automations ADD COLUMN created_time TEXT")
 
             cursor.execute("PRAGMA table_info(fb_automations)")
             fb_cols = [c[1] for c in cursor.fetchall()]
@@ -1065,6 +1068,7 @@ def load_ig_automations():
                 "link_button_label": r["link_button_label"] if "link_button_label" in r.keys() else "",
                 "follow_up_steps": json.loads(r["follow_up_steps"] or "[]") if "follow_up_steps" in r.keys() else [],
                 "buttons": json.loads(r["buttons"] or "[]") if "buttons" in r.keys() else [],
+                "created_time": r["created_time"] if "created_time" in r.keys() else None,
                 "id": r["id"] if "id" in r.keys() else None
             })
         return rules
@@ -1087,7 +1091,7 @@ def save_ig_automations(data):
                 # Keep legacy reply field in sync with first variation
                 legacy_reply = reply_texts[0] if reply_texts else (rule.get("reply") or "")
                 cursor.execute(
-                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons, created_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         rule.get("name"),
                         legacy_reply,
@@ -1117,7 +1121,8 @@ def save_ig_automations(data):
                         rule.get("button_follow_up_message"),
                         (rule.get("link_button_label") or "")[:20],
                         json.dumps(rule.get("follow_up_steps") or []),
-                        json.dumps(rule.get("buttons") or [])
+                        json.dumps(rule.get("buttons") or []),
+                        rule.get("created_time")
                     )
                 )
             conn.commit()
@@ -1730,6 +1735,7 @@ def fetch_ig_media(force=False):
                     "id":         item["id"],
                     "message":    item.get("caption") or "No caption",
                     "created":    item.get("timestamp", "")[:10],
+                    "timestamp":  item.get("timestamp"),
                     "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
                     "media_type": mtype,
                 })
@@ -7157,6 +7163,17 @@ def ig_fetch_stories_api():
 @app.route("/instagram/ui/automations", methods=["GET"])
 def ig_list_automations():
     autos = load_ig_automations()
+    try:
+        # Sort so that the latest uploaded media rules show first in the UI
+        autos.sort(
+            key=lambda x: (
+                0 if not x.get("created_time") else 1,
+                x.get("created_time") or ""
+            ),
+            reverse=True
+        )
+    except Exception as e:
+        print(f"Error sorting automations: {e}", flush=True)
     return jsonify(autos)
 
 @app.route("/instagram/ui/automations", methods=["POST"])
@@ -7488,19 +7505,33 @@ def ig_bulk_automate():
             media_id = m.get("id")
             
             matched_product, keyword = match_media_to_product(caption, thumbnail, products)
-            if not matched_product:
-                continue
-                
-            product_url = matched_product["url"]
-            product_title = matched_product["title"]
             
-            # Truncate rule name to max 3 words
-            title_words = product_title.strip().split()
-            name_3_words = " ".join(title_words[:3])
-            rule_name = f"Auto: {name_3_words}"
+            if matched_product:
+                product_url = matched_product["url"]
+                product_title = matched_product["title"]
+                # Truncate rule name to max 3 words
+                title_words = product_title.strip().split()
+                name_3_words = " ".join(title_words[:3])
+                rule_name = f"Auto: {name_3_words}"
+            else:
+                # If no product matches, use collections page as fallback
+                product_url = "https://www.radikikk.shop/collections/all"
+                # Extract first 3 words of the caption for title
+                caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
+                caption_words = caption_clean.split()
+                short_title = " ".join(caption_words[:3]) if caption_words else "Shop All"
+                product_title = short_title
+                # Truncate rule name to max 3 words
+                rule_name = f"Auto: {product_title}"
+                # Generate fallback keyword
+                keyword = "_".join([w.lower() for w in caption_words[:3]]) if caption_words else "shop_all"
+                keyword = re.sub(r"[^a-z0-9_]", "", keyword)
+                if not keyword:
+                    keyword = "shop_all"
             
             rule = {
                 "name": rule_name,
+                "created_time": m.get("timestamp") or datetime.datetime.now().isoformat(),
                 "reply": "Check your DM inbox for details! 😊",
                 "reply_texts": [
                     "Check your DM inbox for details! 😊",
