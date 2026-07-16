@@ -7446,13 +7446,13 @@ Your task:
    - "product_id": The exact Shopify product ID from the list.
    - "product_title": The exact Shopify product title from the list.
    - "product_handle": The exact Shopify product handle from the list.
-   - "keyword": A unique, short, lowercase snake_case keyword for this product (e.g., "pencil_brush").
+   - "keyword": A unique, very short, lowercase snake_case keyword for this product (maximum 3 words, e.g., "pencil_brush", "bubble_lawn_mower").
 3. If it does NOT match any Shopify product in the list:
    - Identify the product shown in the reel/post from the caption and/or image (e.g. if it shows cheese grating, the product is "Cheese Grater").
    - "product_id": null
    - "product_title": The identified product name (max 3 words, e.g., "Cheese Grater", "Washing Machine").
    - "product_handle": null
-   - "keyword": A unique, short, lowercase snake_case keyword generated based on the identified product name (e.g., "cheese_grater", "washing_machine").
+   - "keyword": A unique, very short, lowercase snake_case keyword generated based on the identified product name (maximum 3 words, e.g., "cheese_grater", "washing_machine").
 
 4. Generate a clean, natural automation name for the product based on the caption and product details:
    - "automation_name": A short descriptive name (minimum 2 words, maximum 4 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for "2 in 1 Portable Laundry Soap Roller Box...", name it "portable laundry soap roller".
@@ -7495,6 +7495,9 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 if pid is None or pid == "null" or handle is None or handle == "null":
                     clean_title = (title or "").strip()
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
+                    kw_parts = [p for p in clean_kw.split("_") if p]
+                    if len(kw_parts) > 3:
+                        clean_kw = "_".join(kw_parts[:3])
                     clean_auto_name = (auto_name or clean_title).strip()
                     if not clean_title or clean_title == "null":
                         clean_title = "Shop All"
@@ -7519,6 +7522,9 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
                     if not clean_kw:
                         clean_kw = re.sub(r"[^a-z0-9_]", "", matched_p["handle"].replace("-", "_"))
+                    kw_parts = [p for p in clean_kw.split("_") if p]
+                    if len(kw_parts) > 3:
+                        clean_kw = "_".join(kw_parts[:3])
                     clean_auto_name = (auto_name or matched_p["title"]).strip()
                     # Limit clean_auto_name to max 4 words
                     clean_auto_name = " ".join(clean_auto_name.split()[:4])
