@@ -1764,6 +1764,7 @@ def fetch_ig_media(force=False):
                     "timestamp":  item.get("timestamp"),
                     "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
                     "media_type": mtype,
+                    "media_url":  item.get("media_url", ""),
                 })
             _ig_media_cache      = media
             _ig_media_cache_time = time.time()
@@ -9085,12 +9086,116 @@ def temp_sql_query():
         conn.close()
 
 
+PROCESSED_VIDEOS_FILE = get_flow_path("processed_ig_videos.json")
+
+def load_processed_videos():
+    if os.path.exists(PROCESSED_VIDEOS_FILE):
+        try:
+            with open(PROCESSED_VIDEOS_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except:
+            pass
+    return set()
+
+def save_processed_videos(processed_set):
+    try:
+        with open(PROCESSED_VIDEOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(processed_set), f, indent=2)
+    except Exception as e:
+        print(f"[Worker Error] Failed to save processed videos: {e}")
+
+def run_ig_video_to_shopify_pipeline(limit=1):
+    processed = load_processed_videos()
+    try:
+        media = fetch_ig_media(force=True)
+    except Exception as e:
+        print(f"[IG Video to Shopify Worker] Failed to fetch media: {e}", flush=True)
+        return
+        
+    videos = [m for m in media if m.get("media_type") == "video" and m["id"] not in processed]
+    if not videos:
+        print("[IG Video to Shopify Worker] No new videos to process.", flush=True)
+        return
+        
+    target_videos = videos[:limit]
+    
+    import sys
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    import amazonboss
+    
+    class Args:
+        confidence_threshold = 0.6
+        auto_publish = True
+        
+    args = Args()
+    
+    os.makedirs("./temp_downloads", exist_ok=True)
+    
+    for v in target_videos:
+        video_id = v["id"]
+        media_url = v.get("media_url")
+        if not media_url:
+            print(f"[IG Video to Shopify Worker] Video {video_id} has no media_url. Skipping.", flush=True)
+            processed.add(video_id)
+            save_processed_videos(processed)
+            continue
+            
+        print(f"[IG Video to Shopify Worker] Processing new reel: {video_id}...", flush=True)
+        
+        temp_path = os.path.join("./temp_downloads", f"{video_id}.mp4")
+        try:
+            r = requests.get(media_url, stream=True, timeout=30)
+            r.raise_for_status()
+            with open(temp_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            print(f"[IG Video to Shopify Worker] Video saved to: {temp_path}", flush=True)
+            
+            result = amazonboss.process_single_video(temp_path, args)
+            
+            if result in ("success", "needs_review", "skipped"):
+                processed.add(video_id)
+                save_processed_videos(processed)
+                print(f"[IG Video to Shopify Worker] Reel {video_id} processed with result: {result}", flush=True)
+            else:
+                print(f"[IG Video to Shopify Worker] Reel {video_id} processing failed/retrying later.", flush=True)
+                
+        except Exception as e:
+            print(f"[IG Video to Shopify Worker Error] Failed processing reel {video_id}: {e}", flush=True)
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+
+def ig_video_to_shopify_worker():
+    print("[IG Video to Shopify Worker] Started content listener thread.", flush=True)
+    time.sleep(30)
+    while True:
+        try:
+            run_ig_video_to_shopify_pipeline(limit=1)
+        except Exception as e:
+            print(f"[IG Video to Shopify Worker Error] {e}", flush=True)
+        time.sleep(300)
+
+@app.route("/instagram/ui/process-latest-video", methods=["POST", "GET"])
+def process_latest_ig_video():
+    try:
+        run_ig_video_to_shopify_pipeline(limit=1)
+        return jsonify({"ok": True, "message": "Successfully triggered pipeline for the latest Instagram video!"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 if __name__ == "__main__":
     import threading
     _migrate_reply_texts_column()  # Add reply_texts column to existing DBs
     threading.Thread(target=ig_queue_worker, daemon=True).start()
     threading.Thread(target=ig_scheduler_worker, daemon=True).start()
     threading.Thread(target=ig_token_health_worker, daemon=True).start()
+    threading.Thread(target=ig_video_to_shopify_worker, daemon=True).start()
     
     port = int(os.environ.get("FLASK_PORT", 5000))
     app.run(host="127.0.0.1", port=port, debug=False)
