@@ -793,15 +793,20 @@ def fetch_page_posts(force=False):
     for token in tokens_to_try:
         try:
             posts = []
-            next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}}&limit=100&access_token={token}"
-            while next_url:
+            next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}}&limit=25&access_token={token}"
+            page_count = 0
+            while next_url and page_count < 15:
                 resp = requests.get(next_url, timeout=10)
                 data = resp.json()
                 if resp.status_code != 200 or "error" in data:
                     err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
                     raise Exception(err_msg)
                 
-                for item in data.get("data", []):
+                page_data = data.get("data", [])
+                if not page_data:
+                    break
+                
+                for item in page_data:
                     thumbnail = item.get("full_picture", "")
                     attachments = item.get("attachments", {}).get("data", [])
                     media_type = "post"
@@ -818,6 +823,7 @@ def fetch_page_posts(force=False):
                         "media_type": media_type,
                     })
                 next_url = data.get("paging", {}).get("next")
+                page_count += 1
             
             # If we reached here, it succeeded! Update global config if needed
             if PAGE_ACCESS_TOKEN != token:
@@ -1732,15 +1738,20 @@ def fetch_ig_media(force=False):
     for token in tokens_to_try:
         try:
             media = []
-            next_url = f"{GRAPH_URL}/{IG_USER_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=100&access_token={token}"
-            while next_url:
+            next_url = f"{GRAPH_URL}/{IG_USER_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
+            page_count = 0
+            while next_url and page_count < 15:
                 resp = requests.get(next_url, timeout=10)
                 data = resp.json()
                 if resp.status_code != 200 or "error" in data:
                     err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
                     raise Exception(err_msg)
                 
-                for item in data.get("data", []):
+                page_data = data.get("data", [])
+                if not page_data:
+                    break
+                
+                for item in page_data:
                     mtype = item.get("media_type", "IMAGE").lower()
                     likes = item.get("like_count", 0) or 0
                     comments = item.get("comments_count", 0) or 0
@@ -1757,6 +1768,7 @@ def fetch_ig_media(force=False):
                         "views":      likes * 15 + comments * 40 + 120
                     })
                 next_url = data.get("paging", {}).get("next")
+                page_count += 1
             
             # Success! Update global config if needed
             if PAGE_ACCESS_TOKEN != token:
