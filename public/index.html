@@ -1945,7 +1945,7 @@ function renderIgRules() {
                 ${rule.thumbnail ? `<img src="${rule.thumbnail}" style="width:40px; height:40px; border-radius:8px; object-fit:cover; border:1px solid var(--border-glass);" onerror="this.src='https://placehold.co/40x40?text=Post'"/>` : `<div style="width:40px; height:40px; border-radius:8px; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px solid var(--border-glass); color:var(--text-secondary); font-size:16px;">🎬</div>`}
                 <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                        <span style="font-weight:600; color:#fff;">${rule.name}</span>
+                        <span style="font-weight:600; color:#fff; word-break: break-word; white-space: normal;">${rule.name}</span>
                         ${typeBadge}
                         ${flowBadge}
                     </div>

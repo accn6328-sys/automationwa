@@ -7450,8 +7450,8 @@ def sanitize_final_rule_name(auto_name, title):
     # Ensure it's not still generic/empty
     if not name or name.lower() in ("2 in 1", "3 in 1", "2-in-1", "3-in-1", "2in1", "3in1"):
         name = "Shop All"
-    # Limit clean_auto_name to max 4 words
-    return " ".join(name.split()[:4])
+    # Limit clean_auto_name to max 7 words
+    return " ".join(name.split()[:7])
 
 def clean_keyword_text(kw):
     # Strip leading generic segments from snake_case keyword
@@ -7494,7 +7494,7 @@ CRITICAL RULE: Only match to a product in the Shopify list if the product in the
    - "keyword": A unique, very short, lowercase snake_case keyword generated based on the identified product name (maximum 3 words, e.g., "cheese_grater", "washing_machine").
 
 4. Generate a clean, natural automation name for the product based on the caption and product details:
-   - "automation_name": A short descriptive name (minimum 2 words, maximum 4 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for "2 in 1 Portable Laundry Soap Roller Box...", name it "portable laundry soap roller".
+   - "automation_name": A short descriptive name (minimum 2 words, maximum 7 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for a washboard laundry basin, name it "all in one washboard laundry basin".
 
 You MUST respond with a JSON object in this format:
 {{
@@ -7686,7 +7686,7 @@ def ig_bulk_automate():
                 # Use default fallback product pointing to collections/all instead of skipping!
                 caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
                 caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
-                short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
+                short_title = " ".join(caption_words[:5]) if caption_words else "Shop All"
                 short_title = sanitize_final_rule_name(short_title, short_title)
                 clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
                 clean_kw = clean_keyword_text(clean_kw)
@@ -7706,11 +7706,11 @@ def ig_bulk_automate():
             product_url = matched_product["url"]
             product_title = matched_product["title"]
             
-            # Use AI automation name directly (ignoring brand names and generic descriptors, max 4, min 2 words)
+            # Use AI automation name directly (ignoring brand names and generic descriptors, max 7, min 2 words)
             rule_name = matched_product.get("auto_name")
             if not rule_name:
                 title_words = product_title.strip().split()
-                rule_name = " ".join(title_words[:2]) if title_words else "Shop All"
+                rule_name = " ".join(title_words[:4]) if title_words else "Shop All"
             
             # ── 1. Create Instagram Auto DM Rule ──
             rule = {
