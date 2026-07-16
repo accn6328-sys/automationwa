@@ -7478,7 +7478,7 @@ Here is the list of products in our Shopify store:
 {products_list_str}
 
 Your task:
-CRITICAL RULE: Only match to a product in the Shopify list if the product in the Reel/post is EXACTLY the same product. Do NOT match similar or different products. E.g., do NOT match an "egg dispenser" to a "laundry soap roller". If there is no exact match in the Shopify list, you must set product_id, product_title, and product_handle to null.
+CRITICAL RULE: Match to a product in the Shopify list if the product in the Reel/post is the same product. If there is no matching product in the list, set product_id, product_title, and product_handle to null.
 
 1. Check if the product in the reel/post matches any product in our Shopify list.
 2. If it MATCHES a Shopify product:
@@ -7497,14 +7497,13 @@ CRITICAL RULE: Only match to a product in the Shopify list if the product in the
    - "automation_name": A short descriptive name (minimum 2 words, maximum 7 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for a washboard laundry basin, name it "all in one washboard laundry basin".
 
 You MUST respond with a JSON object in this format:
-{{
+{
   "product_id": "Shopify product ID or null",
   "product_title": "Shopify product title or the identified product name",
   "product_handle": "Shopify product handle or null",
-  "keyword": "generated_keyword",
-  "automation_name": "clean_automation_name"
-}}
-Return ONLY the raw JSON. Do not include markdown code block wraps.
+  "keyword": "Generated keyword",
+  "automation_name": "Generated automation name"
+}
 """
     print(f"[AI Match Debug] Processing reel caption: '{caption}' | Image URL: {thumbnail_url}", flush=True)
     
@@ -7530,28 +7529,12 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 kw = data.get("keyword")
                 auto_name = data.get("automation_name")
                 
-                # Check for null values indicating an unmatched product, but we STILL return it!
-                if pid is None or pid == "null" or handle is None or handle == "null":
-                    clean_title = (title or "").strip()
-                    clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
-                    clean_kw = clean_keyword_text(clean_kw)
-                    kw_parts = [p for p in clean_kw.split("_") if p]
-                    if len(kw_parts) > 3:
-                        clean_kw = "_".join(kw_parts[:3])
-                    if not clean_title or clean_title == "null":
-                        clean_title = "Shop All"
-                    clean_auto_name = sanitize_final_rule_name(auto_name, clean_title)
-                    if not clean_kw or clean_kw == "null":
-                        clean_kw = "shop_all"
-                    print(f"[AI Match Debug] AI identified unmatched product from video: '{clean_title}' | Auto Name: '{clean_auto_name}' | Keyword: '{clean_kw}'", flush=True)
-                    return {"url": "https://www.radikikk.shop/collections/all", "title": clean_title, "auto_name": clean_auto_name, "is_fallback": True}, clean_kw
-                
                 matched_p = None
-                if pid:
+                if pid and pid != "null":
                     matched_p = next((p for p in products if str(p["id"]) == str(pid)), None)
-                if not matched_p and handle:
+                if not matched_p and handle and handle != "null":
                     matched_p = next((p for p in products if p["handle"] == handle), None)
-                if not matched_p and title:
+                if not matched_p and title and title != "null":
                     matched_p = next((p for p in products if p["title"].lower().strip() == title.lower().strip()), None)
                     
                 if matched_p:
@@ -7570,59 +7553,71 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         except Exception as e:
             print(f"[AI Match Parse Error] {e}", flush=True)
             
-    # ── ONLY RUN TEXT FALLBACK IF AI RESPONSE FAILED (ai_resp is None) ──
-    if not ai_resp:
-        print("[AI Match] AI response failed (429/Error). Running strict text-search matching fallback...", flush=True)
-        best_match_p = None
-        best_match_count = 0
+    # ── RUN SMART TEXT FALLBACK IF AI RESPONSE FAILED OR RETURNED UNMATCHED ──
+    print("[AI Match] AI did not find exact match or failed. Running smart text-search matching...", flush=True)
+    
+    GENERIC_DESCRIPTORS = {
+        "2-in-1", "3-in-1", "2 in 1", "3 in 1", "2in1", "3in1", "easy", "clean", 
+        "cleaner", "cleaning", "portable", "laundry", "kitchen", "box", "organizer", 
+        "holder", "rack", "tool", "device", "gadget", "accessories", "new", "hot", 
+        "sale", "home", "living", "multi", "functional", "stainless", "steel", 
+        "silicone", "plastic", "large", "small", "mini", "with", "your", "this", "that"
+    }
+
+    best_match_p = None
+    best_match_count = 0
+    
+    for p in products:
+        # Clean title words
+        title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
+        words = [w.lower() for w in title_cleaned.split() if len(w) > 2 and w.lower() not in STOP_WORDS]
+        if not words:
+            continue
+            
+        # Check if words are matched as whole words
+        matched_words = [w for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower())]
+        match_count = len(matched_words)
         
-        for p in products:
-            # Clean title words
-            title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
-            words = [w for w in title_cleaned.lower().split() if len(w) > 3 and w not in STOP_WORDS]
-            if not words:
+        if match_count >= 1:
+            # If the only matched words are generic descriptors, skip this match
+            non_generic_matches = [w for w in matched_words if w not in GENERIC_DESCRIPTORS]
+            if not non_generic_matches:
                 continue
                 
-            # Check if words are matched as whole words
-            matched_words = [w for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower())]
-            match_count = len(matched_words)
-            
-            # Ultra-strict threshold: match count must be at least 3 AND cover at least 40% of title words
-            if match_count >= 3 and match_count >= len(words) * 0.4:
-                if match_count > best_match_count:
-                    best_match_count = match_count
-                    best_match_p = p
-                    
-        if best_match_p:
-            clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
-            clean_kw = clean_keyword_text(clean_kw)
-            kw_parts = [p for p in clean_kw.split("_") if p]
-            if len(kw_parts) > 3:
-                clean_kw = "_".join(kw_parts[:3])
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_match_p = p
                 
-            # Parse fallback title
-            words = best_match_p["title"].strip().split()
-            cleaned_words = []
-            brand_words = {"sakar", "fayleeko", "rubic", "adkd", "large", "stainless", "hybrid", "2-in-1", "3-in-1", "2 in 1", "3 in 1"}
-            for w in words:
-                w_clean = re.sub(r"[^a-zA-Z0-9]", "", w).lower()
-                if w_clean not in brand_words and w.lower() not in brand_words:
-                    cleaned_words.append(w)
-            if len(cleaned_words) < 2:
-                cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
-            clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
-            clean_auto_name = sanitize_final_rule_name(clean_auto_name, best_match_p["title"])
+    if best_match_p:
+        clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
+        clean_kw = clean_keyword_text(clean_kw)
+        kw_parts = [p for p in clean_kw.split("_") if p]
+        if len(kw_parts) > 3:
+            clean_kw = "_".join(kw_parts[:3])
             
-            best_match_p_copy = dict(best_match_p)
-            best_match_p_copy["auto_name"] = clean_auto_name
-            print(f"[AI Match Text Fallback] Succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
-            return best_match_p_copy, clean_kw
+        # Parse fallback title
+        words = best_match_p["title"].strip().split()
+        cleaned_words = []
+        brand_words = {"sakar", "fayleeko", "rubic", "adkd", "large", "stainless", "hybrid", "2-in-1", "3-in-1", "2 in 1", "3 in 1"}
+        for w in words:
+            w_clean = re.sub(r"[^a-zA-Z0-9]", "", w).lower()
+            if w_clean not in brand_words and w.lower() not in brand_words:
+                cleaned_words.append(w)
+        if len(cleaned_words) < 2:
+            cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
+        clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
+        clean_auto_name = sanitize_final_rule_name(clean_auto_name, best_match_p["title"])
+        
+        best_match_p_copy = dict(best_match_p)
+        best_match_p_copy["auto_name"] = clean_auto_name
+        print(f"[AI Match Text Fallback] Succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
+        return best_match_p_copy, clean_kw
 
-    # If we reach here, either the AI matched nothing, or the strict text fallback matched nothing.
+    # If we reach here, neither the AI matched nothing, nor the text fallback matched nothing.
     # Return a clean fallback pointing to collections/all as default.
     caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
     caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
-    short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
+    short_title = " ".join(caption_words[:5]) if caption_words else "Shop All"
     short_title = sanitize_final_rule_name(short_title, short_title)
     clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
     clean_kw = clean_keyword_text(clean_kw)
