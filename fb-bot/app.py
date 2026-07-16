@@ -9210,7 +9210,13 @@ def debug_pip_list():
                 [sys.executable, "-m", "playwright", "install", "chromium"],
                 stderr=subprocess.STDOUT
             ).decode("utf-8")
-            install_out += f"\nPlaywright: {playwright_out}"
+            
+            # Install Playwright system dependencies
+            playwright_deps = subprocess.check_output(
+                [sys.executable, "-m", "playwright", "install-deps", "chromium"],
+                stderr=subprocess.STDOUT
+            ).decode("utf-8")
+            install_out += f"\nPlaywright: {playwright_out}\nDeps: {playwright_deps}"
         except Exception as err:
             install_out = f"Install failed: {err}\nOutput: {getattr(err, 'output', b'').decode('utf-8')}"
             
