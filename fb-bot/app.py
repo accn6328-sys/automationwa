@@ -7570,7 +7570,55 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         except Exception as e:
             print(f"[AI Match Parse Error] {e}", flush=True)
             
-    # If we reach here, it means AI matching did not find any match.
+    # ── ONLY RUN TEXT FALLBACK IF AI RESPONSE FAILED (ai_resp is None) ──
+    if not ai_resp:
+        print("[AI Match] AI response failed (429/Error). Running strict text-search matching fallback...", flush=True)
+        best_match_p = None
+        best_match_count = 0
+        
+        for p in products:
+            # Clean title words
+            title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
+            words = [w for w in title_cleaned.lower().split() if len(w) > 3 and w not in STOP_WORDS]
+            if not words:
+                continue
+                
+            # Check if words are matched as whole words
+            matched_words = [w for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower())]
+            match_count = len(matched_words)
+            
+            # Ultra-strict threshold: match count must be at least 3 AND cover at least 40% of title words
+            if match_count >= 3 and match_count >= len(words) * 0.4:
+                if match_count > best_match_count:
+                    best_match_count = match_count
+                    best_match_p = p
+                    
+        if best_match_p:
+            clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
+            clean_kw = clean_keyword_text(clean_kw)
+            kw_parts = [p for p in clean_kw.split("_") if p]
+            if len(kw_parts) > 3:
+                clean_kw = "_".join(kw_parts[:3])
+                
+            # Parse fallback title
+            words = best_match_p["title"].strip().split()
+            cleaned_words = []
+            brand_words = {"sakar", "fayleeko", "rubic", "adkd", "large", "stainless", "hybrid", "2-in-1", "3-in-1", "2 in 1", "3 in 1"}
+            for w in words:
+                w_clean = re.sub(r"[^a-zA-Z0-9]", "", w).lower()
+                if w_clean not in brand_words and w.lower() not in brand_words:
+                    cleaned_words.append(w)
+            if len(cleaned_words) < 2:
+                cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
+            clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
+            clean_auto_name = sanitize_final_rule_name(clean_auto_name, best_match_p["title"])
+            
+            best_match_p_copy = dict(best_match_p)
+            best_match_p_copy["auto_name"] = clean_auto_name
+            print(f"[AI Match Text Fallback] Succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
+            return best_match_p_copy, clean_kw
+
+    # If we reach here, either the AI matched nothing, or the strict text fallback matched nothing.
     # Return a clean fallback pointing to collections/all as default.
     caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
     caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
