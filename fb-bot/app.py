@@ -7424,6 +7424,23 @@ def call_ai_for_matching(prompt, image_url=None):
             
     return None
 
+def clean_rule_name(name):
+    # Remove leading generic prefixes like "2 in 1", "3 in 1", etc. case insensitively
+    name_clean = re.sub(r"^(?:2\s*in\s*1|3\s*in\s*1|2-in-1|3-in-1|2in1|3in1|large|small|mini|new|hot|sale)\b", "", name, flags=re.IGNORECASE).strip()
+    # Strip any leading symbols/spaces/dashes/numbers
+    name_clean = re.sub(r"^[^a-zA-Z0-9]+", "", name_clean).strip()
+    if not name_clean:
+        return name
+    return name_clean
+
+def clean_keyword_text(kw):
+    # Strip leading generic segments from snake_case keyword
+    kw_clean = re.sub(r"^(?:2\s*in\s*1|3\s*in\s*1|2_in_1|3_in_1|2in1|3in1|large|small|mini|new|hot|sale)_*", "", kw, flags=re.IGNORECASE).strip()
+    kw_clean = re.sub(r"^[^a-z0-9]+", "", kw_clean.lower()).strip()
+    if not kw_clean:
+        return kw
+    return kw_clean
+
 def match_media_to_product(caption, thumbnail_url, products):
     if not products:
         return None, "default_product"
@@ -7495,10 +7512,12 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 if pid is None or pid == "null" or handle is None or handle == "null":
                     clean_title = (title or "").strip()
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
+                    clean_kw = clean_keyword_text(clean_kw)
                     kw_parts = [p for p in clean_kw.split("_") if p]
                     if len(kw_parts) > 3:
                         clean_kw = "_".join(kw_parts[:3])
                     clean_auto_name = (auto_name or clean_title).strip()
+                    clean_auto_name = clean_rule_name(clean_auto_name)
                     if not clean_title or clean_title == "null":
                         clean_title = "Shop All"
                     if not clean_kw or clean_kw == "null":
@@ -7522,10 +7541,12 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                     clean_kw = re.sub(r"[^a-z0-9_]", "", (kw or "").lower().strip())
                     if not clean_kw:
                         clean_kw = re.sub(r"[^a-z0-9_]", "", matched_p["handle"].replace("-", "_"))
+                    clean_kw = clean_keyword_text(clean_kw)
                     kw_parts = [p for p in clean_kw.split("_") if p]
                     if len(kw_parts) > 3:
                         clean_kw = "_".join(kw_parts[:3])
                     clean_auto_name = (auto_name or matched_p["title"]).strip()
+                    clean_auto_name = clean_rule_name(clean_auto_name)
                     # Limit clean_auto_name to max 4 words
                     clean_auto_name = " ".join(clean_auto_name.split()[:4])
                     matched_p_copy = dict(matched_p)
@@ -7565,6 +7586,10 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
                 
     if best_match_p:
         clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
+        clean_kw = clean_keyword_text(clean_kw)
+        kw_parts = [p for p in clean_kw.split("_") if p]
+        if len(kw_parts) > 3:
+            clean_kw = "_".join(kw_parts[:3])
         # Parse fallback title
         words = best_match_p["title"].strip().split()
         cleaned_words = []
@@ -7576,6 +7601,7 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         if len(cleaned_words) < 2:
             cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
         clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
+        clean_auto_name = clean_rule_name(clean_auto_name)
         best_match_p_copy = dict(best_match_p)
         best_match_p_copy["auto_name"] = clean_auto_name
         print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
@@ -7585,7 +7611,9 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
     caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
     caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
     short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
+    short_title = clean_rule_name(short_title)
     clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
+    clean_kw = clean_keyword_text(clean_kw)
     clean_kw = re.sub(r"[^a-z0-9_]", "", clean_kw) or "shop_all"
     print(f"[AI Match Debug] No product matched. Fallback to caption words: '{short_title}' | Keyword: '{clean_kw}'", flush=True)
     return {"url": "https://www.radikikk.shop/collections/all", "title": short_title, "auto_name": short_title, "is_fallback": True}, clean_kw
