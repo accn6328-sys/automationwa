@@ -9193,47 +9193,6 @@ def process_latest_ig_video():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-@app.route("/debug/pip-list", methods=["GET"])
-def debug_pip_list():
-    import subprocess
-    import sys
-    try:
-        install_out = ""
-        try:
-            install_out = subprocess.check_output(
-                [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "../requirements.txt"],
-                stderr=subprocess.STDOUT
-            ).decode("utf-8")
-            
-            # Install Playwright browser binaries
-            playwright_out = subprocess.check_output(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                stderr=subprocess.STDOUT
-            ).decode("utf-8")
-            
-            # Install Playwright system dependencies
-            playwright_deps = subprocess.check_output(
-                [sys.executable, "-m", "playwright", "install-deps", "chromium"],
-                stderr=subprocess.STDOUT
-            ).decode("utf-8")
-            install_out += f"\nPlaywright: {playwright_out}\nDeps: {playwright_deps}"
-        except Exception as err:
-            install_out = f"Install failed: {err}\nOutput: {getattr(err, 'output', b'').decode('utf-8')}"
-            
-        out = subprocess.check_output([sys.executable, "-m", "pip", "list"]).decode("utf-8")
-        return jsonify({"ok": True, "pip_list": out, "install_log": install_out})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-@app.route("/debug/requirements-content", methods=["GET"])
-def debug_requirements_content():
-    try:
-        with open("../requirements.txt", "r", encoding="utf-8") as f:
-            return jsonify({"ok": True, "content": repr(f.read())})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
 if __name__ == "__main__":
     import threading
     _migrate_reply_texts_column()  # Add reply_texts column to existing DBs
