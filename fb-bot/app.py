@@ -9196,6 +9196,7 @@ def process_latest_ig_video():
 @app.route("/debug/pip-list", methods=["GET"])
 def debug_pip_list():
     import subprocess
+    import sys
     try:
         out = subprocess.check_output([sys.executable, "-m", "pip", "list"]).decode("utf-8")
         return jsonify({"ok": True, "pip_list": out})
