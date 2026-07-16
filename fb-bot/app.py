@@ -9120,7 +9120,12 @@ def run_ig_video_to_shopify_pipeline(limit=1):
     target_videos = videos[:limit]
     
     import sys
-    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    import os
+    # Add app directory to path
+    parent_dir = os.path.dirname(os.path.abspath(__file__)) # fb-bot
+    grandparent_dir = os.path.dirname(parent_dir) # fullautowebapp or app root
+    sys.path.append(grandparent_dir)
+    sys.path.append(os.path.join(grandparent_dir, "..")) # local workspace root fallback
     import amazonboss
     
     class Args:
