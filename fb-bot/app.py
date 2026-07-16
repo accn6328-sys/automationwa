@@ -9198,8 +9198,17 @@ def debug_pip_list():
     import subprocess
     import sys
     try:
+        install_out = ""
+        try:
+            install_out = subprocess.check_output(
+                [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "../requirements.txt"],
+                stderr=subprocess.STDOUT
+            ).decode("utf-8")
+        except Exception as err:
+            install_out = f"Install failed: {err}\nOutput: {getattr(err, 'output', b'').decode('utf-8')}"
+            
         out = subprocess.check_output([sys.executable, "-m", "pip", "list"]).decode("utf-8")
-        return jsonify({"ok": True, "pip_list": out})
+        return jsonify({"ok": True, "pip_list": out, "install_log": install_out})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
