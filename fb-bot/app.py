@@ -793,6 +793,7 @@ def fetch_page_posts(force=False):
     for token in tokens_to_try:
         try:
             posts = []
+            seen_ids = set()
             next_url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/posts?fields=id,message,story,created_time,full_picture,attachments{{media_type,media}},likes.summary(true).limit(0),comments.summary(true).limit(0)&limit=25&access_token={token}"
             page_count = 0
             while next_url and page_count < 15:
@@ -807,6 +808,10 @@ def fetch_page_posts(force=False):
                     break
                 
                 for item in page_data:
+                    if item["id"] in seen_ids:
+                        continue
+                    seen_ids.add(item["id"])
+                    
                     thumbnail = item.get("full_picture", "")
                     attachments = item.get("attachments", {}).get("data", [])
                     media_type = "post"
@@ -1744,6 +1749,7 @@ def fetch_ig_media(force=False):
     for token in tokens_to_try:
         try:
             media = []
+            seen_ids = set()
             next_url = f"{GRAPH_URL}/{IG_USER_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
             page_count = 0
             while next_url and page_count < 15:
@@ -1758,6 +1764,10 @@ def fetch_ig_media(force=False):
                     break
                 
                 for item in page_data:
+                    if item["id"] in seen_ids:
+                        continue
+                    seen_ids.add(item["id"])
+                    
                     mtype = item.get("media_type", "IMAGE").lower()
                     likes = item.get("like_count", 0) or 0
                     comments = item.get("comments_count", 0) or 0
