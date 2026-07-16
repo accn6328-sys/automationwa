@@ -7497,13 +7497,13 @@ CRITICAL RULE: Match to a product in the Shopify list if the product in the Reel
    - "automation_name": A short descriptive name (minimum 2 words, maximum 7 words). Do NOT include company/brand names (like Fayleeko, Sakar, RUBIC) or generic prefixes like "2 in 1", "3 in 1", "Large". E.g., for a washboard laundry basin, name it "all in one washboard laundry basin".
 
 You MUST respond with a JSON object in this format:
-{
+{{
   "product_id": "Shopify product ID or null",
   "product_title": "Shopify product title or the identified product name",
   "product_handle": "Shopify product handle or null",
   "keyword": "Generated keyword",
   "automation_name": "Generated automation name"
-}
+}}
 """
     print(f"[AI Match Debug] Processing reel caption: '{caption}' | Image URL: {thumbnail_url}", flush=True)
     
