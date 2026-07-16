@@ -7478,6 +7478,8 @@ Here is the list of products in our Shopify store:
 {products_list_str}
 
 Your task:
+CRITICAL RULE: Only match to a product in the Shopify list if the product in the Reel/post is EXACTLY the same product. Do NOT match similar or different products. E.g., do NOT match an "egg dispenser" to a "laundry soap roller". If there is no exact match in the Shopify list, you must set product_id, product_title, and product_handle to null.
+
 1. Check if the product in the reel/post matches any product in our Shopify list.
 2. If it MATCHES a Shopify product:
    - "product_id": The exact Shopify product ID from the list.
@@ -7568,59 +7570,16 @@ Return ONLY the raw JSON. Do not include markdown code block wraps.
         except Exception as e:
             print(f"[AI Match Parse Error] {e}", flush=True)
             
-    # Text search fallback (select the product with the highest match count >= 2)
-    
-    best_match_p = None
-    best_match_count = 0
-    
-    for p in products:
-        # Clean title words
-        title_cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", p["title"])
-        words = [w for w in title_cleaned.lower().split() if len(w) > 3 and w not in STOP_WORDS]
-        if not words:
-            continue
-            
-        # Check if words are matched as whole words
-        matched_words = [w for w in words if re.search(rf"\b{re.escape(w)}\b", caption.lower())]
-        match_count = len(matched_words)
-        
-        if match_count >= 2:
-            if match_count > best_match_count:
-                best_match_count = match_count
-                best_match_p = p
-                
-    if best_match_p:
-        clean_kw = re.sub(r"[^a-z0-9_]", "", best_match_p["handle"].replace("-", "_"))
-        clean_kw = clean_keyword_text(clean_kw)
-        kw_parts = [p for p in clean_kw.split("_") if p]
-        if len(kw_parts) > 3:
-            clean_kw = "_".join(kw_parts[:3])
-        # Parse fallback title
-        words = best_match_p["title"].strip().split()
-        cleaned_words = []
-        brand_words = {"sakar", "fayleeko", "rubic", "adkd", "large", "stainless", "hybrid", "2-in-1", "3-in-1", "2 in 1", "3 in 1"}
-        for w in words:
-            w_clean = re.sub(r"[^a-zA-Z0-9]", "", w).lower()
-            if w_clean not in brand_words and w.lower() not in brand_words:
-                cleaned_words.append(w)
-        if len(cleaned_words) < 2:
-            cleaned_words = [w for w in words if w.lower() not in {"2", "in", "1", "3"}]
-        clean_auto_name = " ".join(cleaned_words[:3]) if cleaned_words else "Shop All"
-        clean_auto_name = sanitize_final_rule_name(clean_auto_name, best_match_p["title"])
-        best_match_p_copy = dict(best_match_p)
-        best_match_p_copy["auto_name"] = clean_auto_name
-        print(f"[AI Match Debug] Fallback text match succeeded for product: '{best_match_p['title']}' | Auto Name: '{clean_auto_name}' | Match count: {best_match_count}", flush=True)
-        return best_match_p_copy, clean_kw
-            
-    # Last resort fallback: extract product name from caption using simple NLP logic
+    # If we reach here, it means AI matching did not find any match.
+    # Return a clean fallback pointing to collections/all as default.
     caption_clean = re.sub(r"[^a-zA-Z0-9\s]", "", caption).strip()
     caption_words = [w for w in caption_clean.split() if w.lower() not in STOP_WORDS]
     short_title = " ".join(caption_words[:2]) if caption_words else "Shop All"
-    short_title = clean_rule_name(short_title)
+    short_title = sanitize_final_rule_name(short_title, short_title)
     clean_kw = "_".join([w.lower() for w in caption_words[:2]]) if caption_words else "shop_all"
     clean_kw = clean_keyword_text(clean_kw)
     clean_kw = re.sub(r"[^a-z0-9_]", "", clean_kw) or "shop_all"
-    print(f"[AI Match Debug] No product matched. Fallback to caption words: '{short_title}' | Keyword: '{clean_kw}'", flush=True)
+    print(f"[AI Match Fallback] No product matched. Defaulting to collections/all: '{short_title}' | Keyword: '{clean_kw}'", flush=True)
     return {"url": "https://www.radikikk.shop/collections/all", "title": short_title, "auto_name": short_title, "is_fallback": True}, clean_kw
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
