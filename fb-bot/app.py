@@ -5707,6 +5707,10 @@ HTML = """
         <button class="btn btn-danger" onclick="clearLatestAutomations()" style="padding: 5px 10px; font-size: 12px; background:#ff4d4f; color:#fff; border:none; border-radius:6px; cursor:pointer;">Clear Rules</button>
       </div>
     </div>
+    <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border: 1px solid #ccd0d5; border-radius: 8px; padding: 6px 12px; background: #f0f2f5; max-width: 320px;">
+      <span>🔍</span>
+      <input type="text" id="fb-rules-search" placeholder="Search automations..." style="border: none; background: transparent; font-size: 13px; outline: none; width: 100%;" oninput="filterFbRules()">
+    </div>
     {% for auto in automations %}
     <div class="auto-item">
       {% if auto.get('thumbnail') %}
@@ -5907,6 +5911,20 @@ HTML = """
 </div>
 
 <script>
+function filterFbRules() {
+  const q = document.getElementById('fb-rules-search').value.toLowerCase().trim();
+  const items = document.querySelectorAll('.auto-item');
+  items.forEach(item => {
+    const name = (item.querySelector('.auto-name') ? item.querySelector('.auto-name').textContent : '').toLowerCase();
+    const meta = (item.querySelector('.auto-meta') ? item.querySelector('.auto-meta').textContent : '').toLowerCase();
+    if (name.includes(q) || meta.includes(q)) {
+      item.style.display = 'flex';
+    } else {
+      item.style.display = 'none';
+    }
+  });
+}
+
 let currentStep = 1;
 let totalSteps  = 5;
 let selectedScope   = null;
