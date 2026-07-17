@@ -1492,6 +1492,368 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Legal & Compliance Pages ──────────────────────────────────────────────────
+// These are public, no-auth pages for Meta App Review submission.
+// Accessible at: /privacy-policy, /terms-of-service, /data-deletion
+
+const LEGAL_CSS = `
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f9fafb; color: #1a1a2e; line-height: 1.75; font-size: 16px; }
+    header { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .brand { font-size: 18px; font-weight: 700; color: #111; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .brand span { background: linear-gradient(135deg, #f09433, #dc2743, #bc1888); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    nav a { font-size: 13px; color: #6b7280; text-decoration: none; margin-left: 20px; }
+    nav a:hover { color: #111; }
+    .container { max-width: 820px; margin: 48px auto; padding: 0 24px 80px; }
+    .meta { font-size: 13px; color: #6b7280; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+    .badge { display: inline-block; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em; }
+    h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; color: #111; }
+    h2 { font-size: 18px; font-weight: 700; margin: 36px 0 10px; color: #111; padding-bottom: 6px; border-bottom: 2px solid #f3f4f6; }
+    p { margin-bottom: 14px; color: #374151; }
+    ul { margin: 0 0 14px 20px; }
+    li { margin-bottom: 6px; color: #374151; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .callout { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 6px; margin: 24px 0; font-size: 14px; color: #78350f; }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 28px; margin-top: 32px; }
+    .contact-link { display: inline-flex; align-items: center; gap: 6px; background: #111; color: #fff !important; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; margin-top: 8px; }
+    .contact-link:hover { background: #374151; text-decoration: none !important; }
+    footer { text-align: center; margin-top: 60px; padding-top: 24px; border-top: 1px solid #e5e7eb; font-size: 13px; color: #9ca3af; }
+    footer a { color: #6b7280; text-decoration: none; margin: 0 10px; }
+    footer a:hover { color: #111; }
+  </style>
+`;
+
+const LEGAL_HEADER = (active) => `
+  <header>
+    <a href="/" class="brand">Radikikk <span>Ecommerce</span></a>
+    <nav>
+      <a href="/privacy-policy" ${active === 'privacy' ? 'style="color:#111;font-weight:600"' : ''}>Privacy Policy</a>
+      <a href="/terms-of-service" ${active === 'terms' ? 'style="color:#111;font-weight:600"' : ''}>Terms of Service</a>
+      <a href="/data-deletion" ${active === 'deletion' ? 'style="color:#111;font-weight:600"' : ''}>Data Deletion</a>
+    </nav>
+  </header>
+`;
+
+const LEGAL_FOOTER = `
+  <footer>
+    <p>© ${new Date().getFullYear()} Radikikk Ecommerce. All rights reserved.</p>
+    <p style="margin-top:8px">
+      <a href="/privacy-policy">Privacy Policy</a>
+      <a href="/terms-of-service">Terms of Service</a>
+      <a href="/data-deletion">Data Deletion</a>
+    </p>
+  </footer>
+`;
+
+app.get('/privacy-policy', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Radikikk Ecommerce</title>
+  <meta name="description" content="Privacy Policy for the Radikikk Ecommerce Instagram automation app.">
+  ${LEGAL_CSS}
+</head>
+<body>
+${LEGAL_HEADER('privacy')}
+<div class="container">
+  <h1>Privacy Policy</h1>
+  <div class="meta">
+    <span><strong>Last Updated:</strong> July 17, 2026</span>
+    <span class="badge">Meta App Review Compliant</span>
+  </div>
+
+  <p>This Privacy Policy explains how <strong>Radikikk Ecommerce</strong> ("we", "us", or "our") collects, uses, and protects your information when you interact with our Instagram automation service. We are committed to handling your data responsibly and transparently.</p>
+
+  <h2>1. Who We Are</h2>
+  <p>Radikikk Ecommerce operates an Instagram automation tool that uses Meta's official Instagram Graph API to auto-reply to comments, send automated direct messages, and process product orders placed through DM conversations. Our service is hosted on Railway and integrates with Shopify for order fulfilment.</p>
+  <p><strong>Contact:</strong> <a href="mailto:sreeragv18cp@gmail.com">sreeragv18cp@gmail.com</a></p>
+
+  <h2>2. What Data We Collect</h2>
+  <p>We collect only the information needed to provide and operate our service:</p>
+  <ul>
+    <li><strong>Instagram account information:</strong> Your Instagram username and publicly visible profile details (such as profile picture URL), obtained through the Instagram Graph API when you interact with our account.</li>
+    <li><strong>Comment text:</strong> The content of comments you leave on our Instagram posts or reels that trigger an automated reply.</li>
+    <li><strong>Direct message (DM) content:</strong> Messages you send to our Instagram account as part of automated keyword or comment-triggered DM flows.</li>
+    <li><strong>Order details (if you place an order via DM):</strong> Your name, phone number, and shipping address, collected through a guided DM conversation and used solely to fulfil your order via Shopify.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    If you serve customers in the European Union, this section may need to specify a legal basis for processing under GDPR (e.g., "legitimate interest" or "contract performance"). India's Digital Personal Data Protection (DPDP) Act 2023 may similarly require you to specify a lawful basis. Please consult a qualified lawyer before publishing.
+  </div>
+
+  <h2>3. Why We Collect This Data</h2>
+  <ul>
+    <li>To operate comment-to-DM automation: detecting trigger keywords and sending automated replies via Instagram's official API.</li>
+    <li>To process product orders: fulfilling orders placed through DM conversations by creating them in our Shopify store.</li>
+    <li>To improve service quality and review past interactions when handling support queries.</li>
+  </ul>
+
+  <h2>4. How We Use the Data</h2>
+  <p>We use your data exclusively to deliver our service. We do not sell, rent, or trade your personal data to any third party for marketing purposes. Your Instagram data is accessed strictly through Meta's official Graph API and within the permissions you grant.</p>
+
+  <h2>5. Who We Share Data With</h2>
+  <p>We share your data only with the following trusted data processors, and only to the extent necessary to provide our service:</p>
+  <ul>
+    <li><strong>Railway</strong> (<a href="https://railway.app" target="_blank" rel="noopener">railway.app</a>) — our cloud hosting and infrastructure provider. Our application and its database run on Railway's servers. Railway may process data as part of normal hosting operations. See <a href="https://railway.app/legal/privacy" target="_blank" rel="noopener">Railway's Privacy Policy</a>.</li>
+    <li><strong>Shopify</strong> (<a href="https://shopify.com" target="_blank" rel="noopener">shopify.com</a>) — our e-commerce and order management platform. When you place an order via DM, your name, phone number, and shipping address are passed to Shopify to create and fulfil your order. See <a href="https://www.shopify.com/legal/privacy" target="_blank" rel="noopener">Shopify's Privacy Policy</a>.</li>
+    <li><strong>Meta / Instagram</strong> — we use Meta's official Instagram Graph API to send and receive messages. Your interactions are subject to <a href="https://www.facebook.com/policy.php" target="_blank" rel="noopener">Meta's Data Policy</a>.</li>
+  </ul>
+  <p>We do not use any additional third-party analytics, advertising, or tracking services.</p>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    If Railway or Shopify process personal data from EU residents on your behalf, you may need Data Processing Agreements (DPAs) in place with each provider. Both companies offer DPAs — check their documentation. This is a GDPR requirement.
+  </div>
+
+  <h2>6. How Long We Retain Your Data</h2>
+  <ul>
+    <li><strong>Comment and DM interaction logs:</strong> Retained for up to 90 days to allow customer support and dispute resolution, then deleted.</li>
+    <li><strong>Order details (name, phone, address):</strong> Retained in Shopify for as long as required for order fulfilment and standard accounting/legal obligations (typically 7 years under Indian tax law — consult a lawyer for your jurisdiction).</li>
+    <li><strong>Instagram profile data (username, profile picture):</strong> Cached temporarily for service operation and cleared within 30 days or on request.</li>
+  </ul>
+
+  <h2>7. Your Rights</h2>
+  <p>You have the right to:</p>
+  <ul>
+    <li><strong>Access</strong> the personal data we hold about you.</li>
+    <li><strong>Correct</strong> any inaccurate data.</li>
+    <li><strong>Request deletion</strong> of your data (see our <a href="/data-deletion">Data Deletion page</a>).</li>
+    <li><strong>Object</strong> to certain types of processing.</li>
+    <li><strong>Withdraw consent</strong> at any time (where processing is based on consent).</li>
+  </ul>
+  <p>To exercise any of these rights, contact us at <a href="mailto:sreeragv18cp@gmail.com">sreeragv18cp@gmail.com</a>. We will respond within 30 days.</p>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    If you have customers in the EU, GDPR gives them a right to respond within <em>30 days</em> (extendable by 2 months in complex cases), and you may be required to appoint an EU representative if you don't have an EU establishment. Under India's DPDP Act, similar obligations may apply. Please verify the exact timelines and requirements applicable to your business.
+  </div>
+
+  <h2>8. Data Security</h2>
+  <p>We implement reasonable technical and organisational measures to protect your data, including secure HTTPS transport, environment-variable-based credential management, and access controls. However, no system is 100% secure. In the event of a data breach that affects your rights, we will notify you as required by applicable law.</p>
+
+  <h2>9. Children's Privacy</h2>
+  <p>Our service is not directed at children under 13 (or the applicable age of digital consent in your jurisdiction). We do not knowingly collect personal data from children. If you believe a child has provided us with personal data, please contact us immediately.</p>
+
+  <h2>10. Changes to This Policy</h2>
+  <p>We may update this Privacy Policy periodically. The "Last Updated" date at the top reflects the most recent revision. Continued use of our Instagram account or service after a change constitutes acceptance of the updated policy.</p>
+
+  <h2>11. Contact Us</h2>
+  <div class="card">
+    <p>For any privacy-related questions, data access requests, or concerns, please contact:</p>
+    <p><strong>Radikikk Ecommerce</strong></p>
+    <a href="mailto:sreeragv18cp@gmail.com" class="contact-link">✉️ sreeragv18cp@gmail.com</a>
+    <p style="margin-top: 16px; font-size: 14px; color: #6b7280;">We aim to respond to all privacy enquiries within 30 days.</p>
+  </div>
+
+  ${LEGAL_FOOTER}
+</div>
+</body>
+</html>`);
+});
+
+app.get('/terms-of-service', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — Radikikk Ecommerce</title>
+  <meta name="description" content="Terms of Service for the Radikikk Ecommerce Instagram automation app.">
+  ${LEGAL_CSS}
+</head>
+<body>
+${LEGAL_HEADER('terms')}
+<div class="container">
+  <h1>Terms of Service</h1>
+  <div class="meta">
+    <span><strong>Last Updated:</strong> July 17, 2026</span>
+    <span class="badge">Meta App Review Compliant</span>
+  </div>
+
+  <p>Please read these Terms of Service ("Terms") carefully before using the Radikikk Ecommerce Instagram automation service. By interacting with our Instagram account or placing an order through our DM system, you agree to be bound by these Terms.</p>
+
+  <h2>1. Description of Service</h2>
+  <p><strong>Radikikk Ecommerce</strong> provides an Instagram automation service that:</p>
+  <ul>
+    <li><strong>Automated comment replies and DMs:</strong> Detects trigger keywords in comments or direct messages on our Instagram account and sends automated responses using Meta's official Instagram Graph API.</li>
+    <li><strong>Order processing via DM:</strong> Guides customers through a conversational DM flow to collect their name, phone number, and shipping address in order to create and fulfil product orders through Shopify.</li>
+  </ul>
+  <p>The service is hosted on Railway and operates in accordance with Meta's Platform Terms and Developer Policies.</p>
+
+  <h2>2. Eligibility</h2>
+  <p>You must be at least 13 years old (or the minimum age required in your country to use Instagram) to interact with our service. By using our service, you represent and warrant that you meet this eligibility requirement. If you are under 18, you should have the consent of a parent or guardian.</p>
+
+  <h2>3. Acceptable Use</h2>
+  <p>You agree to use our service only for lawful purposes and in accordance with these Terms. You must not:</p>
+  <ul>
+    <li>Use the service for any fraudulent, abusive, or harmful purpose.</li>
+    <li>Attempt to interfere with, disrupt, or gain unauthorised access to the service or its underlying systems.</li>
+    <li>Provide false or misleading information when placing an order (including a false name, address, or phone number).</li>
+    <li>Use automated tools or bots to interact with our service in ways not intended for ordinary users.</li>
+    <li>Violate any applicable local, national, or international law or regulation.</li>
+  </ul>
+
+  <h2>4. Orders and Payments</h2>
+  <p>Orders placed through our DM-based order flow are subject to product availability. By completing the DM order process, you agree to purchase the specified product at the stated price. Order details are transmitted to Shopify for fulfilment. Payment terms, return policies, and shipping timelines are governed by our Shopify store policies.</p>
+
+  <h2>5. No Affiliation with Meta / Instagram</h2>
+  <p><strong>Radikikk Ecommerce is an independent application and is not affiliated with, officially connected to, sponsored by, or endorsed by Meta Platforms, Inc. or Instagram.</strong> Our service uses Meta's official Instagram Graph API under Meta's Platform Terms, but we are a separate, independent business. "Instagram" and "Meta" are registered trademarks of their respective owners.</p>
+
+  <h2>6. Intellectual Property</h2>
+  <p>All content, branding, and materials associated with Radikikk Ecommerce are the property of Radikikk Ecommerce or its licensors. You may not reproduce, distribute, or create derivative works from our content without our explicit written permission.</p>
+
+  <h2>7. Privacy</h2>
+  <p>Our collection and use of your personal data is governed by our <a href="/privacy-policy">Privacy Policy</a>, which is incorporated into these Terms by reference. By using our service, you also consent to our Privacy Policy.</p>
+
+  <h2>8. Disclaimer of Warranties</h2>
+  <p>Our service is provided <strong>"as is"</strong> and <strong>"as available"</strong>, without warranties of any kind, either express or implied. We do not warrant that the service will be uninterrupted, error-free, or free of viruses or other harmful components. We make no guarantee regarding the timeliness or accuracy of automated replies.</p>
+
+  <h2>9. Limitation of Liability</h2>
+  <p>To the fullest extent permitted by applicable law, Radikikk Ecommerce shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, goodwill, or other intangible losses, arising from:</p>
+  <ul>
+    <li>Your use of, or inability to use, our service.</li>
+    <li>Any changes made to the service or its discontinuation.</li>
+    <li>Errors, omissions, or inaccuracies in automated replies.</li>
+    <li>Unauthorised access to or alteration of your data.</li>
+    <li>Any delays in order fulfilment by Shopify or our logistics partners.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    Limitation of liability clauses may not be enforceable to the same extent in all jurisdictions. In the EU (under consumer protection law) and in India (under the Consumer Protection Act 2019), certain statutory rights cannot be excluded. A lawyer can help you tailor this clause to your specific markets.
+  </div>
+
+  <h2>10. Indemnification</h2>
+  <p>You agree to indemnify and hold harmless Radikikk Ecommerce and its operators from and against any claims, liabilities, damages, losses, and expenses arising out of or in connection with your violation of these Terms or misuse of our service.</p>
+
+  <h2>11. Modifications to Terms</h2>
+  <p>We reserve the right to update these Terms at any time. The "Last Updated" date at the top will reflect any changes. Continued use of our service after a change constitutes your acceptance of the revised Terms. We encourage you to review these Terms periodically.</p>
+
+  <h2>12. Governing Law</h2>
+  <p>These Terms shall be governed by and construed in accordance with the laws of <strong>[Your Country / State — e.g., India / Kerala]</strong>, without regard to its conflict of law provisions. Any disputes arising under these Terms shall be subject to the exclusive jurisdiction of the courts in <strong>[Your City, Country]</strong>.</p>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    Fill in the governing law placeholder with your actual jurisdiction before publishing. If you serve customers in the EU, consumer disputes may need to comply with EU consumer protection rules regardless of your chosen jurisdiction. An arbitration clause may also be worth considering.
+  </div>
+
+  <h2>13. Contact Us</h2>
+  <div class="card">
+    <p>If you have any questions about these Terms of Service, please contact:</p>
+    <p><strong>Radikikk Ecommerce</strong></p>
+    <a href="mailto:sreeragv18cp@gmail.com" class="contact-link">✉️ sreeragv18cp@gmail.com</a>
+  </div>
+
+  ${LEGAL_FOOTER}
+</div>
+</body>
+</html>`);
+});
+
+app.get('/data-deletion', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Deletion Request — Radikikk Ecommerce</title>
+  <meta name="description" content="Request deletion of your personal data from Radikikk Ecommerce.">
+  ${LEGAL_CSS}
+</head>
+<body>
+${LEGAL_HEADER('deletion')}
+<div class="container">
+  <h1>Data Deletion Request</h1>
+  <div class="meta">
+    <span><strong>Last Updated:</strong> July 17, 2026</span>
+    <span class="badge">Meta App Review Compliant</span>
+  </div>
+
+  <p>At <strong>Radikikk Ecommerce</strong>, you have the right to request deletion of the personal data we hold about you. This page explains exactly what we store, how to request deletion, and what to expect after you do.</p>
+
+  <h2>What Data We Store</h2>
+  <p>Depending on your interactions with our Instagram account and DM-based order system, we may hold the following data about you:</p>
+  <ul>
+    <li><strong>Instagram username and profile information</strong> — collected when your comment or DM triggered our automation.</li>
+    <li><strong>Comment text and DM message history</strong> — stored in our database on Railway for up to 90 days for service operation and support.</li>
+    <li><strong>Order details</strong> — if you placed an order via DM: your name, phone number, and shipping address, stored in Shopify.</li>
+    <li><strong>Cached profile data</strong> — temporary Instagram profile picture and username cache used to personalise automated replies.</li>
+  </ul>
+
+  <h2>How to Request Deletion</h2>
+  <div class="card" style="text-align:center; padding: 36px;">
+    <div style="font-size: 40px; margin-bottom: 12px;">✉️</div>
+    <p style="font-size: 18px; font-weight: 700; margin-bottom: 8px;">Send an email to:</p>
+    <a href="mailto:sreeragv18cp@gmail.com?subject=Data%20Deletion%20Request&body=Hi%2C%20I%20would%20like%20to%20request%20the%20deletion%20of%20my%20personal%20data.%0A%0AMy%20Instagram%20username%3A%20%5BYour%20Instagram%20username%5D%0A%0APlease%20delete%20all%20data%20associated%20with%20my%20account.%0A%0AThank%20you." class="contact-link" style="font-size: 16px; margin-top: 8px;">
+      sreeragv18cp@gmail.com
+    </a>
+    <p style="margin-top: 20px; color: #6b7280; font-size: 14px;">Use the subject line: <strong>"Data Deletion Request"</strong></p>
+  </div>
+
+  <h2>What to Include in Your Request</h2>
+  <p>To help us locate and delete your data accurately, please include the following in your email:</p>
+  <ul>
+    <li>Your <strong>Instagram username</strong> (e.g. @yourusername)</li>
+    <li>Approximate <strong>date(s) of interaction</strong> (if known)</li>
+    <li>Whether you placed an <strong>order via DM</strong> and if so, any order reference or the phone number used</li>
+  </ul>
+
+  <h2>What We Will Delete</h2>
+  <p>Upon a verified deletion request, we will:</p>
+  <ul>
+    <li>Delete all <strong>stored DM conversation history</strong> and <strong>comment interaction logs</strong> associated with your Instagram account from our database.</li>
+    <li>Delete any <strong>cached Instagram profile data</strong> (username, profile picture) held in our system.</li>
+    <li>Remove your <strong>email address and contact information</strong> from any automation or lead capture records.</li>
+    <li>For <strong>order-related data</strong> stored in Shopify: we will action your deletion request with Shopify as a data processor. Please note that certain order data may be required to be retained for a period by applicable accounting, tax, or legal obligations (typically 7 years under Indian law). We will inform you of any such limitations in our response.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>⚠️ Legal Note (review with a lawyer):</strong>
+    If you serve customers in the EU, GDPR's "right to erasure" (Article 17) may apply. There are specific exceptions (e.g., data needed for legal claims or compliance with a legal obligation) that limit the right. Under India's DPDP Act 2023, similar rights of erasure exist. The exact scope of what can and cannot be deleted, and how to notify users of exceptions, should be reviewed by a lawyer for your markets.
+  </div>
+
+  <h2>Expected Turnaround</h2>
+  <p>We aim to action all data deletion requests within <strong>15 business days</strong> of receiving your email. You will receive a confirmation reply when the deletion has been completed, or an explanation if any data must be retained for legal reasons.</p>
+
+  <h2>Third-Party Data</h2>
+  <p>If your data has been shared with our data processors, we will also request deletion on your behalf:</p>
+  <ul>
+    <li><strong>Shopify:</strong> Order-related data deletion is subject to Shopify's data retention policies and applicable legal requirements. We will coordinate with Shopify and inform you of the outcome.</li>
+    <li><strong>Railway:</strong> Server-level logs may be retained for a short period by Railway per their own data retention policies. We do not control Railway's infrastructure logs directly, but any application-level data will be deleted from our database.</li>
+  </ul>
+  <p>You may also contact Shopify and Railway directly using their own privacy/data request processes if needed.</p>
+
+  <h2>Revoking Instagram Permissions</h2>
+  <p>You can also revoke our app's access to your Instagram account at any time directly through Instagram:</p>
+  <ol style="margin: 0 0 14px 20px;">
+    <li>Go to your Instagram profile → <strong>Settings</strong> → <strong>Security</strong> → <strong>Apps and Websites</strong>.</li>
+    <li>Find <strong>Radikikk Ecommerce</strong> (or the connected app name) and tap <strong>Remove</strong>.</li>
+  </ol>
+  <p>Revoking permissions stops any future data collection but does not automatically delete data already stored. Please submit a deletion request via email to ensure stored data is removed.</p>
+
+  <h2>Contact</h2>
+  <div class="card">
+    <p>For all data deletion enquiries, please contact us at:</p>
+    <p><strong>Radikikk Ecommerce</strong></p>
+    <a href="mailto:sreeragv18cp@gmail.com" class="contact-link">✉️ sreeragv18cp@gmail.com</a>
+    <p style="margin-top: 16px; font-size: 14px; color: #6b7280;">We respond to all deletion requests within 15 business days.</p>
+  </div>
+
+  ${LEGAL_FOOTER}
+</div>
+</body>
+</html>`);
+});
+
 app.get('/api/status', (req, res) => {
     res.json({
         status: connectionStatus,
