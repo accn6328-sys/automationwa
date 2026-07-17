@@ -3012,6 +3012,25 @@ async function igwzNext() {
     igwzGoToStep(4);
   } else if (igwzStep === 4) {
     const hasComment = (igwzData.type === 'comment' || igwzData.type === 'live');
+    
+    // Determine created_time based on video upload timestamp or original rule created_time
+    let ruleCreatedTime = null;
+    if (igwzData.scope === 'specific' && igwzData.post_ids && igwzData.post_ids.length > 0) {
+      const firstId = igwzData.post_ids[0];
+      const selectedPost = igwzSelectedPostIds[firstId];
+      if (selectedPost) {
+        ruleCreatedTime = selectedPost.timestamp || selectedPost.created_time || null;
+      }
+    }
+    if (!ruleCreatedTime) {
+      ruleCreatedTime = new Date().toISOString();
+    }
+    
+    let originalCreatedTime = null;
+    if (editingIgRuleIdx !== null && igRules[editingIgRuleIdx]) {
+      originalCreatedTime = igRules[editingIgRuleIdx].created_time;
+    }
+
     const payload = {
       name: igwzData.name,
       trigger_type: igwzData.type,
@@ -3034,6 +3053,7 @@ async function igwzNext() {
       buttons: igwzData.buttons || [],
       delay_seconds: igwzData.delaySeconds,
       follow_up_steps: igFollowUpSteps,
+      created_time: originalCreatedTime || ruleCreatedTime,
       active: true
     };
     try {
