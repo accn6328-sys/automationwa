@@ -234,7 +234,8 @@ def init_sqlite_db():
         button_follow_up_message TEXT,
         link_button_label TEXT,
         follow_up_steps TEXT,
-        buttons TEXT
+        buttons TEXT,
+        created_time TEXT
     );
     CREATE TABLE IF NOT EXISTS ig_leads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -707,10 +708,23 @@ def load_automations():
                 "button_follow_up_message": r["button_follow_up_message"],
                 "link_button_label": r["link_button_label"],
                 "follow_up_steps": json.loads(r["follow_up_steps"] or "[]"),
-                "buttons": json.loads(r["buttons"] or "[]")
+                "buttons": json.loads(r["buttons"] or "[]"),
+                "created_time": r["created_time"] if "created_time" in r.keys() else None
             })
     except Exception as e:
         print(f"[load_automations DB error] {e}")
+
+    try:
+        # Sort so that the latest uploaded media rules show first in the UI
+        existing.sort(
+            key=lambda x: (
+                0 if not x.get("created_time") else 1,
+                x.get("created_time") or ""
+            ),
+            reverse=True
+        )
+    except Exception as e:
+        print(f"Error sorting Facebook automations: {e}", flush=True)
 
     # Fallback to load/migrate file if DB is empty
     if not existing and os.path.exists(AUTOMATIONS_FILE):
@@ -746,8 +760,8 @@ def save_automations(data):
                     keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, 
                     follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, 
                     follow_gate_conversions, button_enabled, button_label, button_follow_up_message, 
-                    link_button_label, follow_up_steps, buttons
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    link_button_label, follow_up_steps, buttons, created_time
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     r.get("name"),
@@ -778,7 +792,8 @@ def save_automations(data):
                     r.get("button_follow_up_message"),
                     r.get("link_button_label"),
                     json.dumps(r.get("follow_up_steps") or []),
-                    json.dumps(r.get("buttons") or [])
+                    json.dumps(r.get("buttons") or []),
+                    r.get("created_time")
                 ),
                 commit=True
             )
@@ -872,6 +887,7 @@ def fetch_page_posts(force=False):
                         "id":         item["id"],
                         "message":    item.get("message") or item.get("story") or "No caption",
                         "created":    item.get("created_time", "")[:10],
+                        "created_time": item.get("created_time"),
                         "thumbnail":  thumbnail,
                         "media_type": media_type,
                         "likes":      likes,
@@ -1127,6 +1143,16 @@ def _migrate_owner_id_columns():
                     print(f"[DB Migration] Added owner_id column to {t}", flush=True)
             except Exception as tbl_err:
                 print(f"[DB Migration] Error migrating table {t}: {tbl_err}", flush=True)
+        # Migrate created_time column for fb_automations if it does not exist
+        try:
+            cursor.execute("PRAGMA table_info(fb_automations)")
+            cols = [row["name"] for row in cursor.fetchall()]
+            if cols and "created_time" not in cols:
+                cursor.execute("ALTER TABLE fb_automations ADD COLUMN created_time TEXT")
+                conn.commit()
+                print("[DB Migration] Added created_time column to fb_automations", flush=True)
+        except Exception as fb_err:
+            print(f"[DB Migration] Error adding created_time to fb_automations: {fb_err}", flush=True)
     except Exception as e:
         print(f"[DB Migration] owner_id migration error: {e}", flush=True)
     finally:
@@ -6525,6 +6551,17 @@ async function nextStep() {
     if ((selectedAction === 'comment' || selectedAction === 'both') && !reply) return alert('Please enter a comment reply message');
     if ((selectedAction === 'dm' || selectedAction === 'both') && !dm) return alert('Please enter a DM message');
     const posts = Object.values(selectedPostIds);
+    let ruleCreatedTime = null;
+    if (selectedScope === 'specific' && posts.length > 0) {
+      ruleCreatedTime = posts[0].created_time || posts[0].created || null;
+    }
+    if (!ruleCreatedTime) {
+      ruleCreatedTime = new Date().toISOString();
+    }
+    let originalCreatedTime = null;
+    if (editingIdx >= 0 && typeof automations !== 'undefined' && automations[editingIdx]) {
+      originalCreatedTime = automations[editingIdx].created_time;
+    }
     const payload = {
       name, reply, action: selectedAction, dm_message: dm,
       scope:        selectedScope,
@@ -6533,6 +6570,7 @@ async function nextStep() {
       keyword_type: selectedKwType,
       keywords:     keywords,
       active:       true,
+      created_time: originalCreatedTime || ruleCreatedTime
     };
     const url    = editingIdx >= 0 ? '/ui/automations/' + editingIdx : '/ui/automations';
     const method = editingIdx >= 0 ? 'PUT' : 'POST';
