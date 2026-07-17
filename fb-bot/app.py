@@ -8344,7 +8344,11 @@ def automate_single_media_post(m, products, fb_posts):
             return False, False
             
         caption = m.get("message") or ""
-        thumbnail = m.get("thumbnail") or ""
+        # Fix: Use thumbnail_url first, then media_url (for non-video posts), ensuring we always get a static image URL
+        thumbnail = m.get("thumbnail") or m.get("media_url") or ""
+        # For reels/video: thumbnail_url is the cover image; media_url is the video file — prefer thumbnail_url
+        # The fetch_ig_media function already maps: thumbnail = thumbnail_url or media_url
+        # So m["thumbnail"] should already be the best available value
         
         matched_product, keyword = match_media_to_product(caption, thumbnail, products)
         if not matched_product:
@@ -8375,10 +8379,12 @@ def automate_single_media_post(m, products, fb_posts):
             title_words = product_title.strip().split()
             rule_name = " ".join(title_words[:4]) if title_words else "Shop All"
             
+        ig_created_time = m.get("timestamp") or datetime.datetime.now().isoformat()
+
         # ── 1. Create Instagram Auto DM Rule ──
         rule = {
             "name": rule_name,
-            "created_time": m.get("timestamp") or datetime.datetime.now().isoformat(),
+            "created_time": ig_created_time,
             "reply": "Check your DM inbox for details! 😊",
             "reply_texts": [
                 "Check your DM inbox for details! 😊",
@@ -8395,7 +8401,7 @@ def automate_single_media_post(m, products, fb_posts):
             "keyword_type": "any",
             "keywords": [],
             "active": True,
-            "delay_seconds": 30,
+            "delay_seconds": 60,
             "link_url": product_url,
             "follow_up_message": "",
             "ask_follow": False,
@@ -8427,6 +8433,7 @@ def automate_single_media_post(m, products, fb_posts):
         print(f"[Auto Rule Creator] Created IG rule for post {media_id}: '{rule_name}'", flush=True)
         
         # ── 2. Match and Create FB Page Comment Rule ──
+        # Try to find a matching FB post by caption first
         fb_post = None
         fb_rule_created = False
         if fb_posts and caption:
@@ -8442,28 +8449,33 @@ def automate_single_media_post(m, products, fb_posts):
                         fb_post = post
                         break
                         
-        if fb_post and fb_post["id"] not in existing_fb_post_ids:
+        # Create FB rule: use matched FB post if found, otherwise use IG post data directly
+        fb_post_id = fb_post["id"] if fb_post else f"ig_{media_id}"
+        if fb_post_id not in existing_fb_post_ids:
             fb_reply = (
                 f"വാട്സാപ്പിൽ പ്രോഡക്റ്റ് ഓർഡർ ചെയ്യാൻ വേണ്ടി ഈ ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക 👇\n"
                 f"https://wa.me/919895138430?text={fb_kw}\n\n"
                 f"സൈറ്റ് വഴി ഓർഡർ ചെയ്യാൻ 👇🏻\n"
                 f"{product_url}"
             )
-            fb_thumb = fb_post.get("thumbnail") or thumbnail
+            # Use FB post thumbnail if we have a matched FB post; otherwise fall back to IG thumbnail
+            fb_thumb = (fb_post.get("thumbnail") if fb_post else None) or thumbnail
+            fb_created_time = (fb_post.get("created_time") if fb_post else None) or ig_created_time
             fb_rule = {
                 "name": rule_name,
+                "created_time": fb_created_time,
                 "reply": fb_reply,
                 "reply_texts": [fb_reply],
                 "action": "comment",
                 "dm_message": "",
                 "trigger_type": "comment",
                 "scope": "specific",
-                "post_ids": [fb_post["id"]],
+                "post_ids": [fb_post_id],
                 "thumbnail": fb_thumb,
                 "keyword_type": "any",
                 "keywords": [],
                 "active": True,
-                "delay_seconds": 30,
+                "delay_seconds": 60,
                 "link_url": product_url,
                 "follow_up_message": "",
                 "ask_follow": False,
@@ -8480,12 +8492,16 @@ def automate_single_media_post(m, products, fb_posts):
             fb_autos.append(fb_rule)
             save_automations(fb_autos)
             fb_rule_created = True
-            print(f"[Auto Rule Creator] Created FB rule for post {fb_post['id']}: '{rule_name}'", flush=True)
+            if fb_post:
+                print(f"[Auto Rule Creator] Created FB rule for matched FB post {fb_post['id']}: '{rule_name}'", flush=True)
+            else:
+                print(f"[Auto Rule Creator] No matching FB post found — created FB rule using IG post {media_id}: '{rule_name}'", flush=True)
             
         return True, fb_rule_created
     except Exception as e:
         print(f"[Auto Rule Creator Error] {e}", flush=True)
         return False, False
+
 
 @app.route("/instagram/ui/bulk-automate", methods=["POST"])
 def ig_bulk_automate():
