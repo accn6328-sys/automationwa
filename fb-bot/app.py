@@ -1202,6 +1202,17 @@ def load_ig_automations(owner_id=None):
                 "created_time": r["created_time"] if "created_time" in r.keys() else None,
                 "id": r["id"] if "id" in r.keys() else None
             })
+        try:
+            # Sort so that the latest uploaded media rules show first in the UI
+            rules.sort(
+                key=lambda x: (
+                    0 if not x.get("created_time") else 1,
+                    x.get("created_time") or ""
+                ),
+                reverse=True
+            )
+        except Exception as e:
+            print(f"Error sorting automations in load_ig_automations: {e}", flush=True)
         return rules
     except Exception as e:
         print(f"Error loading IG automations: {e}")
