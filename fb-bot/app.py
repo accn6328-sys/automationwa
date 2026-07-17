@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string, redirect, session
+from flask import Flask, request, jsonify, render_template_string, redirect, session, has_request_context
 import time
 import random
 import requests
@@ -1050,11 +1050,18 @@ _ig_replied_set      = set()
 
 
 # ── SQLite Database Access Adapters ──
-def load_ig_keywords():
+def load_ig_keywords(owner_id=None):
+    if owner_id is None:
+        try:
+            owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    suffix = f"_{owner_id}" if owner_id else ""
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM ig_settings WHERE key = 'keywords'")
+        cursor.execute("SELECT value FROM ig_settings WHERE key = ?", (f"keywords{suffix}",))
         row = cursor.fetchone()
         if row:
             return json.loads(row["value"])
@@ -1065,12 +1072,19 @@ def load_ig_keywords():
     finally:
         conn.close()
 
-def save_ig_keywords(data):
+def save_ig_keywords(data, owner_id=None):
+    if owner_id is None:
+        try:
+            owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    suffix = f"_{owner_id}" if owner_id else ""
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES ('keywords', ?)", (json.dumps(data),))
+            cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES (?, ?)", (f"keywords{suffix}", json.dumps(data)))
             conn.commit()
         except Exception as e:
             print(f"Error saving IG keywords: {e}")
@@ -1093,11 +1107,41 @@ def _migrate_reply_texts_column():
     finally:
         conn.close()
 
+def _migrate_owner_id_columns():
+    """One-time migration: add owner_id column to tables if they don't exist yet."""
+    tables = [
+        "ig_automations", "ig_settings", "ig_stats", 
+        "fb_automations", "fb_settings", "fb_stats", 
+        "ig_messages_log", "ig_messages_queue"
+    ]
+    conn = get_db_conn()
+    try:
+        cursor = conn.cursor()
+        for t in tables:
+            try:
+                cursor.execute(f"PRAGMA table_info({t})")
+                cols = [row["name"] for row in cursor.fetchall()]
+                if cols and "owner_id" not in cols:
+                    cursor.execute(f"ALTER TABLE {t} ADD COLUMN owner_id TEXT")
+                    conn.commit()
+                    print(f"[DB Migration] Added owner_id column to {t}", flush=True)
+            except Exception as tbl_err:
+                print(f"[DB Migration] Error migrating table {t}: {tbl_err}", flush=True)
+    except Exception as e:
+        print(f"[DB Migration] owner_id migration error: {e}", flush=True)
+    finally:
+        conn.close()
 
-def load_ig_automations():
+def load_ig_automations(owner_id=None):
+    if owner_id is None:
+        try:
+            owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+
     latest_thumb = ""
     try:
-        media = fetch_ig_media()
+        media = fetch_ig_media(owner_id=owner_id)
         for m in media:
             if m.get("thumbnail"):
                 latest_thumb = m["thumbnail"]
@@ -1108,7 +1152,10 @@ def load_ig_automations():
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM ig_automations")
+        if owner_id:
+            cursor.execute("SELECT * FROM ig_automations WHERE owner_id = ?", (owner_id,))
+        else:
+            cursor.execute("SELECT * FROM ig_automations WHERE owner_id IS NULL OR owner_id = ''")
         rows = cursor.fetchall()
         rules = []
         for r in rows:
@@ -1162,12 +1209,21 @@ def load_ig_automations():
     finally:
         conn.close()
 
-def save_ig_automations(data):
+def save_ig_automations(data, owner_id=None):
+    if owner_id is None:
+        try:
+            owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM ig_automations")
+            if owner_id:
+                cursor.execute("DELETE FROM ig_automations WHERE owner_id = ?", (owner_id,))
+            else:
+                cursor.execute("DELETE FROM ig_automations WHERE owner_id IS NULL OR owner_id = ''")
             for rule in data:
                 # Build reply_texts: filter empty/blank strings only
                 raw_texts = rule.get("reply_texts") or []
@@ -1175,7 +1231,7 @@ def save_ig_automations(data):
                 # Keep legacy reply field in sync with first variation
                 legacy_reply = reply_texts[0] if reply_texts else (rule.get("reply") or "")
                 cursor.execute(
-                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons, created_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons, created_time, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         rule.get("name"),
                         legacy_reply,
@@ -1206,7 +1262,8 @@ def save_ig_automations(data):
                         (rule.get("link_button_label") or "")[:20],
                         json.dumps(rule.get("follow_up_steps") or []),
                         json.dumps(rule.get("buttons") or []),
-                        rule.get("created_time")
+                        rule.get("created_time"),
+                        owner_id
                     )
                 )
             conn.commit()
@@ -1216,15 +1273,21 @@ def save_ig_automations(data):
             conn.close()
 
 
-def increment_ig_automation_counter(name, column_name):
+def increment_ig_automation_counter(name, column_name, owner_id=None):
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                f"UPDATE ig_automations SET {column_name} = {column_name} + 1 WHERE name = ?",
-                (name,)
-            )
+            if owner_id:
+                cursor.execute(
+                    f"UPDATE ig_automations SET {column_name} = {column_name} + 1 WHERE name = ? AND owner_id = ?",
+                    (name, owner_id)
+                )
+            else:
+                cursor.execute(
+                    f"UPDATE ig_automations SET {column_name} = {column_name} + 1 WHERE name = ? AND (owner_id IS NULL OR owner_id = '')",
+                    (name,)
+                )
             conn.commit()
         except Exception as e:
             print(f"[Counter error] Failed to increment {column_name} for {name}: {e}")
@@ -1303,19 +1366,39 @@ def queue_ig_follow_up_task(recipient_id, auto_id, step_index, delay, run_id=Non
     })
     save_ig_messages_queue(queue)
 
-def load_ig_stats():
+def load_ig_stats(owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT key, value FROM ig_stats")
         rows = cursor.fetchall()
-        stats = {"comment_replies": 0, "dms_sent": 0, "story_replies": 0, "live_replies": 0,
-                 "dm_triggers": 0, "mentions_handled": 0, "dms_today": 0, "dms_today_date": ""}
-        for r in rows:
-            if r["key"] in stats:
-                stats[r["key"]] = int(r["value"] or 0)
+        
+        # Determine key suffix
+        suffix = f"_{owner_id}" if owner_id else ""
+        
+        # Build raw stats dict
+        raw_stats = {r["key"]: int(r["value"] or 0) for r in rows}
+        
+        stats = {
+            "comment_replies": raw_stats.get(f"comment_replies{suffix}", 0),
+            "dms_sent": raw_stats.get(f"dms_sent{suffix}", 0),
+            "story_replies": raw_stats.get(f"story_replies{suffix}", 0),
+            "live_replies": raw_stats.get(f"live_replies{suffix}", 0),
+            "dm_triggers": raw_stats.get(f"dm_triggers{suffix}", 0),
+            "mentions_handled": raw_stats.get(f"mentions_handled{suffix}", 0),
+            "dms_today": raw_stats.get(f"dms_today{suffix}", 0),
+            "dms_today_date": ""
+        }
+        
         # Fetch dms_today_date from settings
-        cursor.execute("SELECT value FROM ig_settings WHERE key = 'dms_today_date'")
+        cursor.execute("SELECT value FROM ig_settings WHERE key = ?", (f"dms_today_date{suffix}",))
         date_row = cursor.fetchone()
         if date_row:
             stats["dms_today_date"] = date_row["value"]
@@ -1327,26 +1410,34 @@ def load_ig_stats():
     finally:
         conn.close()
 
-def save_ig_stats(stats):
+def save_ig_stats(stats, owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    suffix = f"_{owner_id}" if owner_id else ""
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
             for k, v in stats.items():
                 if k == "dms_today_date":
-                    cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES (?, ?)", (k, str(v)))
+                    cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES (?, ?)", (f"dms_today_date{suffix}", str(v)))
                 else:
-                    cursor.execute("INSERT OR REPLACE INTO ig_stats (key, value) VALUES (?, ?)", (k, int(v or 0)))
+                    cursor.execute("INSERT OR REPLACE INTO ig_stats (key, value) VALUES (?, ?)", (f"{k}{suffix}", int(v or 0)))
             conn.commit()
         except Exception as e:
             print(f"Error saving IG stats: {e}")
         finally:
             conn.close()
 
-def bump_ig_stat(key):
-    stats = load_ig_stats()
+def bump_ig_stat(key, owner_id=None):
+    stats = load_ig_stats(owner_id=owner_id)
     stats[key] = stats.get(key, 0) + 1
-    save_ig_stats(stats)
+    save_ig_stats(stats, owner_id=owner_id)
 
 def _load_ig_replied_from_file():
     pass
@@ -1406,11 +1497,19 @@ def ig_mark_welcomed(user_id):
         finally:
             conn.close()
 
-def load_ig_settings():
+def load_ig_settings(owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    suffix = f"_{owner_id}" if owner_id else ""
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM ig_settings WHERE key = 'general_settings'")
+        cursor.execute("SELECT value FROM ig_settings WHERE key = ?", (f"general_settings{suffix}",))
         row = cursor.fetchone()
         if row:
             return json.loads(row["value"])
@@ -1421,23 +1520,41 @@ def load_ig_settings():
     finally:
         conn.close()
 
-def save_ig_settings(data):
+def save_ig_settings(data, owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    suffix = f"_{owner_id}" if owner_id else ""
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES ('general_settings', ?)", (json.dumps(data),))
+            cursor.execute("INSERT OR REPLACE INTO ig_settings (key, value) VALUES (?, ?)", (f"general_settings{suffix}", json.dumps(data)))
             conn.commit()
         except Exception as e:
             print(f"Error saving settings: {e}")
         finally:
             conn.close()
 
-def load_ig_messages_log():
+def load_ig_messages_log(owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id FROM ig_messages_log")
+        if owner_id:
+            cursor.execute("SELECT recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id, owner_id FROM ig_messages_log WHERE owner_id = ?", (owner_id,))
+        else:
+            cursor.execute("SELECT recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id, owner_id FROM ig_messages_log WHERE owner_id IS NULL OR owner_id = ''")
         rows = cursor.fetchall()
         return [{
             "recipient_id": r["recipient_id"],
@@ -1447,7 +1564,8 @@ def load_ig_messages_log():
             "is_automated": bool(r["is_automated"]),
             "is_private_reply": bool(r["is_private_reply"]),
             "automation_name": r["automation_name"],
-            "run_id": r["run_id"]
+            "run_id": r["run_id"],
+            "owner_id": r["owner_id"]
         } for r in rows]
     except Exception as e:
         print(f"Error loading message logs: {e}")
@@ -1455,15 +1573,26 @@ def load_ig_messages_log():
     finally:
         conn.close()
 
-def save_ig_messages_log(data):
+def save_ig_messages_log(data, owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM ig_messages_log")
+            if owner_id:
+                cursor.execute("DELETE FROM ig_messages_log WHERE owner_id = ?", (owner_id,))
+            else:
+                cursor.execute("DELETE FROM ig_messages_log WHERE owner_id IS NULL OR owner_id = ''")
             for entry in data:
+                tgt_owner_id = entry.get("owner_id") or owner_id
                 cursor.execute(
-                    "INSERT INTO ig_messages_log (recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO ig_messages_log (recipient_id, text, status, sent_at, is_automated, is_private_reply, automation_name, run_id, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         entry.get("recipient_id"),
                         entry.get("text"),
@@ -1472,7 +1601,8 @@ def save_ig_messages_log(data):
                         1 if entry.get("is_automated") else 0,
                         1 if entry.get("is_private_reply") else 0,
                         entry.get("automation_name"),
-                        entry.get("run_id")
+                        entry.get("run_id"),
+                        tgt_owner_id
                     )
                 )
             conn.commit()
@@ -1481,11 +1611,24 @@ def save_ig_messages_log(data):
         finally:
             conn.close()
 
-def load_ig_messages_queue():
+def load_ig_messages_queue(owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
     conn = get_db_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT payload FROM ig_messages_queue WHERE processed = 0")
+        if owner_id:
+            cursor.execute("SELECT payload FROM ig_messages_queue WHERE processed = 0 AND owner_id = ?", (owner_id,))
+        else:
+            if not has_request_context():
+                cursor.execute("SELECT payload FROM ig_messages_queue WHERE processed = 0")
+            else:
+                cursor.execute("SELECT payload FROM ig_messages_queue WHERE processed = 0 AND (owner_id IS NULL OR owner_id = '')")
         rows = cursor.fetchall()
         return [json.loads(r["payload"]) for r in rows]
     except Exception as e:
@@ -1494,16 +1637,30 @@ def load_ig_messages_queue():
     finally:
         conn.close()
 
-def save_ig_messages_queue(data):
+def save_ig_messages_queue(data, owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM ig_messages_queue WHERE processed = 0")
+            if owner_id:
+                cursor.execute("DELETE FROM ig_messages_queue WHERE processed = 0 AND owner_id = ?", (owner_id,))
+            else:
+                if not has_request_context():
+                    cursor.execute("DELETE FROM ig_messages_queue WHERE processed = 0")
+                else:
+                    cursor.execute("DELETE FROM ig_messages_queue WHERE processed = 0 AND (owner_id IS NULL OR owner_id = '')")
             for item in data:
+                tgt_owner_id = item.get("owner_id") or owner_id
                 cursor.execute(
-                    "INSERT INTO ig_messages_queue (payload, scheduled_at, processed) VALUES (?, ?, 0)",
-                    (json.dumps(item), item.get("scheduled_at") or time.time())
+                    "INSERT INTO ig_messages_queue (payload, scheduled_at, processed, owner_id) VALUES (?, ?, 0, ?)",
+                    (json.dumps(item), item.get("scheduled_at") or time.time(), tgt_owner_id)
                 )
             conn.commit()
         except Exception as e:
@@ -4045,16 +4202,17 @@ def handle_official_wa_message(msg, contact):
         handle_wa_ai_fallback(sender_wa_id, text, sender_name)
 
 
-def reply_to_ig_comment(comment_id, message):
+def reply_to_ig_comment(comment_id, message, access_token=None, owner_id=None):
+    target_token = access_token or PAGE_ACCESS_TOKEN
     resp = requests.post(
         f"{GRAPH_URL}/{comment_id}/replies",
-        data={"message": message, "access_token": PAGE_ACCESS_TOKEN},
+        data={"message": message, "access_token": target_token},
         timeout=8,
     )
     result = resp.json()
     if "id" in result:
         print(f"  [IG Comment Reply sent] ✅")
-        bump_ig_stat("comment_replies")
+        bump_ig_stat("comment_replies", owner_id=owner_id)
     else:
         print(f"  [IG Comment Reply failed] ❌ → {result}")
 
@@ -4109,9 +4267,13 @@ def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False
     save_ig_messages_queue(queue)
     print(f"[Queue] Queued message to {recipient_id}: {text[:30]}... (from_comment={from_comment}, run_id={run_id}, auto_id={auto_id})", flush=True)
 
-def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None) -> tuple[bool, str]:
-    if not IG_USER_ID:
+def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
+    target_token = access_token or PAGE_ACCESS_TOKEN
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if not target_ig_user_id:
         return False, "IG_USER_ID not set"
+    if not daily_cap_ok(owner_id=owner_id):
+        return False, "Daily DM cap reached"
     try:
         meta_replies = []
         for r in quick_replies_list:
@@ -4134,14 +4296,14 @@ def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None)
             
         resp = requests.post(
             f"{GRAPH_URL}/me/messages",
-            params={"access_token": PAGE_ACCESS_TOKEN},
+            params={"access_token": target_token},
             json=json_payload,
             timeout=8,
         )
         result = resp.json()
         if "message_id" in result:
-            bump_ig_stat("dms_sent")
-            bump_daily_dm()
+            bump_ig_stat("dms_sent", owner_id=owner_id)
+            bump_daily_dm(owner_id=owner_id)
             return True, ""
         else:
             return False, result.get("error", {}).get("message", str(result))
@@ -4204,10 +4366,12 @@ def send_ig_flow_step(user_id, flow_key, step_id, username=""):
         }
         save_ig_conv_state(conv_state)
 
-def perform_ig_private_reply_send(comment_id, message, quick_replies=None, buttons=None, auto_id=None) -> tuple[bool, str]:
-    if not IG_USER_ID:
+def perform_ig_private_reply_send(comment_id, message, quick_replies=None, buttons=None, auto_id=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
+    target_token = access_token or PAGE_ACCESS_TOKEN
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if not target_ig_user_id:
         return False, "IG_USER_ID not set"
-    if not daily_cap_ok():
+    if not daily_cap_ok(owner_id=owner_id):
         return False, "Daily DM cap reached"
     try:
         if buttons:
@@ -4269,24 +4433,26 @@ def perform_ig_private_reply_send(comment_id, message, quick_replies=None, butto
 
         resp = requests.post(
             f"{GRAPH_URL}/me/messages",
-            params={"access_token": PAGE_ACCESS_TOKEN},
+            params={"access_token": target_token},
             json=payload,
             timeout=8,
         )
         result = resp.json()
         if "message_id" in result:
-            bump_ig_stat("dms_sent")
-            bump_daily_dm()
+            bump_ig_stat("dms_sent", owner_id=owner_id)
+            bump_daily_dm(owner_id=owner_id)
             return True, ""
         else:
             return False, result.get("error", {}).get("message", str(result))
     except Exception as e:
         return False, str(e)
 
-def perform_ig_dm_send(user_id, message, tag=None) -> tuple[bool, str]:
-    if not IG_USER_ID:
+def perform_ig_dm_send(user_id, message, tag=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
+    target_token = access_token or PAGE_ACCESS_TOKEN
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if not target_ig_user_id:
         return False, "IG_USER_ID not set"
-    if not daily_cap_ok():
+    if not daily_cap_ok(owner_id=owner_id):
         return False, "Daily DM cap reached"
     try:
         json_payload = {"recipient": {"id": user_id}, "message": {"text": message}}
@@ -4295,14 +4461,14 @@ def perform_ig_dm_send(user_id, message, tag=None) -> tuple[bool, str]:
             json_payload["messaging_type"] = "MESSAGE_TAG"
         resp = requests.post(
             f"{GRAPH_URL}/me/messages",
-            params={"access_token": PAGE_ACCESS_TOKEN},
+            params={"access_token": target_token},
             json=json_payload,
             timeout=8,
         )
         result = resp.json()
         if "message_id" in result:
-            bump_ig_stat("dms_sent")
-            bump_daily_dm()
+            bump_ig_stat("dms_sent", owner_id=owner_id)
+            bump_daily_dm(owner_id=owner_id)
             return True, ""
         else:
             return False, result.get("error", {}).get("message", str(result))
@@ -4338,13 +4504,15 @@ def clean_button_urls(buttons):
         cleaned.append(btn_copy)
     return cleaned
 
-def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=None) -> tuple[bool, str]:
+def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
     """Send a message containing multiple buttons (web_url button template or quick replies)."""
-    if not daily_cap_ok():
+    target_token = access_token or PAGE_ACCESS_TOKEN
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if not daily_cap_ok(owner_id=owner_id):
         return False, "Daily DM cap reached"
     
     if not buttons_list:
-        return perform_ig_dm_send(recipient_id, text, tag=tag)
+        return perform_ig_dm_send(recipient_id, text, tag=tag, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
         
     buttons_list = clean_button_urls(buttons_list)
     has_url = any(is_valid_url(btn.get("url")) for btn in buttons_list)
@@ -4403,22 +4571,24 @@ def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=
             
         resp = requests.post(
             f"{GRAPH_URL}/me/messages",
-            params={"access_token": PAGE_ACCESS_TOKEN},
+            params={"access_token": target_token},
             json=json_payload,
             timeout=8,
         )
         result = resp.json()
         if "message_id" in result:
-            bump_ig_stat("dms_sent")
-            bump_daily_dm()
+            bump_ig_stat("dms_sent", owner_id=owner_id)
+            bump_daily_dm(owner_id=owner_id)
             return True, ""
         return False, result.get("error", {}).get("message", str(result))
     except Exception as e:
         return False, str(e)
 
-def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, link_button_label, tag=None) -> tuple[bool, str]:
+def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, link_button_label, tag=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
     """Send a Button Template DM containing a clickable web_url button."""
-    if not daily_cap_ok():
+    target_token = access_token or PAGE_ACCESS_TOKEN
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if not daily_cap_ok(owner_id=owner_id):
         return False, "Daily DM cap reached"
     try:
         json_payload = {
@@ -4443,14 +4613,14 @@ def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, l
             json_payload["tag"] = tag
         resp = requests.post(
             f"{GRAPH_URL}/me/messages",
-            params={"access_token": PAGE_ACCESS_TOKEN},
+            params={"access_token": target_token},
             json=json_payload,
             timeout=8,
         )
         result = resp.json()
         if "message_id" in result:
-            bump_ig_stat("dms_sent")
-            bump_daily_dm()
+            bump_ig_stat("dms_sent", owner_id=owner_id)
+            bump_daily_dm(owner_id=owner_id)
             return True, ""
         return False, result.get("error", {}).get("message", str(result))
     except Exception as e:
@@ -4491,8 +4661,16 @@ def ig_queue_worker():
                 time.sleep(3)
                 continue
                 
-            # Count successful DMs sent in the last 1 hour
-            logs = load_ig_messages_log()
+            # Process the first task
+            msg_task = queue[0]
+            recipient_id = msg_task.get("recipient_id")
+            
+            task_token = msg_task.get("access_token")
+            task_ig_user_id = msg_task.get("ig_user_id")
+            task_owner_id = msg_task.get("owner_id")
+            
+            # Count successful DMs sent in the last 1 hour for this owner context
+            logs = load_ig_messages_log(owner_id=task_owner_id)
             one_hour_ago = time.time() - 3600
             sent_in_last_hour = sum(1 for log in logs if log.get("sent_at", 0) >= one_hour_ago and log.get("status") == "success")
             
@@ -4501,10 +4679,6 @@ def ig_queue_worker():
                 time.sleep(30)
                 continue
                 
-            # Process the first task
-            msg_task = queue[0]
-            recipient_id = msg_task.get("recipient_id")
-            
             # ── Follow-up Sequence Worker ──
             if msg_task.get("is_follow_up"):
                 auto_id = msg_task.get("auto_id")
@@ -4523,15 +4697,22 @@ def ig_queue_worker():
                         
                         if step.get("link_url"):
                             success, error_message = perform_ig_button_template_send(
-                                recipient_id, text, step["link_url"], step.get("link_button_label")
+                                recipient_id, text, step["link_url"], step.get("link_button_label"),
+                                access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
                             )
                         elif step.get("advance_mode") == "on_tap" and step.get("button_label"):
                             btn_label = step["button_label"][:20]
                             btn_payload = f"IGSTEP_{auto_id}_{step_index}"
                             quick_replies = [{"content_type": "text", "title": btn_label, "payload": btn_payload}]
-                            success, error_message = perform_ig_dm_send_with_buttons(recipient_id, text, quick_replies)
+                            success, error_message = perform_ig_dm_send_with_buttons(
+                                recipient_id, text, quick_replies,
+                                access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
+                            )
                         else:
-                            success, error_message = perform_ig_dm_send(recipient_id, text)
+                            success, error_message = perform_ig_dm_send(
+                                recipient_id, text,
+                                access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
+                            )
                             
                         logs.append({
                             "recipient_id": recipient_id,
@@ -4539,9 +4720,10 @@ def ig_queue_worker():
                             "status": "success" if success else f"failed: {error_message}",
                             "sent_at": time.time(),
                             "is_automated": True,
-                            "is_private_reply": False
+                            "is_private_reply": False,
+                            "owner_id": task_owner_id
                         })
-                        save_ig_messages_log(logs)
+                        save_ig_messages_log(logs, owner_id=task_owner_id)
                         
                         if success:
                             increment_ig_automation_counter_by_id(auto_id, "dms_sent")
@@ -4550,7 +4732,7 @@ def ig_queue_worker():
                                 next_step = steps[next_idx]
                                 if next_step.get("advance_mode") == "auto":
                                     queue_ig_follow_up_task(
-                                        recipient_id, auto_id, next_idx, next_step.get("delay_seconds") or 0
+                                        recipient_id, auto_id, next_idx, next_step.get("delay_seconds") or 0, run_id=msg_task.get("run_id")
                                     )
                 
                 queue.pop(0)
@@ -4561,7 +4743,6 @@ def ig_queue_worker():
             automation_name = msg_task.get("automation_name", "manual")
             
             # Rule 2: One private reply per comment, within 7 days.
-            # (Enforced during queue processing or during queuing, we will double check comment timestamp)
             comment_id = msg_task.get("comment_id")
             
             # Rule 3: One automated DM per user per 24-hour period from a comment or story trigger
@@ -4588,14 +4769,13 @@ def ig_queue_worker():
                         "is_automated": True,
                         "is_private_reply": False,
                         "automation_name": automation_name,
-                        "run_id": msg_task.get("run_id")
+                        "run_id": msg_task.get("run_id"),
+                        "owner_id": task_owner_id
                     })
-                    save_ig_messages_log(logs)
+                    save_ig_messages_log(logs, owner_id=task_owner_id)
                     continue
 
             # Rule 4: 24-hour standard messaging window + tags compliance
-            # Note: DMs triggered from comment private replies (from_comment=True) are allowed
-            # because the private reply itself opens the 24h messaging window.
             tag_to_use = None
             from_comment = msg_task.get("from_comment", False)
             if not is_private_reply and not from_comment and recipient_id:
@@ -4617,9 +4797,10 @@ def ig_queue_worker():
                                 "text": msg_task.get("text"),
                                 "status": "outside_manual_7day_window",
                                 "sent_at": time.time(),
-                                "is_automated": False
+                                "is_automated": False,
+                                "owner_id": task_owner_id
                             })
-                            save_ig_messages_log(logs)
+                            save_ig_messages_log(logs, owner_id=task_owner_id)
                             continue
                     else:
                         print(f"[IG Worker] User {recipient_id} outside 24h automated window. Skipping automated reply.", flush=True)
@@ -4630,9 +4811,10 @@ def ig_queue_worker():
                             "text": msg_task.get("text"),
                             "status": "outside_messaging_window",
                             "sent_at": time.time(),
-                            "is_automated": True
+                            "is_automated": True,
+                            "owner_id": task_owner_id
                         })
-                        save_ig_messages_log(logs)
+                        save_ig_messages_log(logs, owner_id=task_owner_id)
                         continue
             elif from_comment and not is_private_reply:
                 print(f"[IG Worker] from_comment=True for {recipient_id}, bypassing 24h window check (private reply opened window).", flush=True)
@@ -4653,14 +4835,26 @@ def ig_queue_worker():
                     text, 
                     quick_replies=msg_task.get("quick_replies"),
                     buttons=msg_task.get("buttons"),
-                    auto_id=auto_id
+                    auto_id=auto_id,
+                    access_token=task_token,
+                    ig_user_id=task_ig_user_id,
+                    owner_id=task_owner_id
                 )
             elif msg_task.get("buttons"):
-                success, error_message = perform_ig_buttons_send(recipient_id, text, msg_task["buttons"], tag=tag_to_use, auto_id=auto_id)
+                success, error_message = perform_ig_buttons_send(
+                    recipient_id, text, msg_task["buttons"], tag=tag_to_use, auto_id=auto_id,
+                    access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
+                )
             elif msg_task.get("quick_replies"):
-                success, error_message = perform_ig_dm_send_with_buttons(recipient_id, text, msg_task["quick_replies"], tag=tag_to_use)
+                success, error_message = perform_ig_dm_send_with_buttons(
+                    recipient_id, text, msg_task["quick_replies"], tag=tag_to_use,
+                    access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
+                )
             else:
-                success, error_message = perform_ig_dm_send(recipient_id, text, tag=tag_to_use)
+                success, error_message = perform_ig_dm_send(
+                    recipient_id, text, tag=tag_to_use,
+                    access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
+                )
                 
             logs.append({
                 "recipient_id": recipient_id,
@@ -4670,9 +4864,10 @@ def ig_queue_worker():
                 "is_automated": automation_name != "manual",
                 "is_private_reply": is_private_reply,
                 "automation_name": automation_name,
-                "run_id": msg_task.get("run_id")
+                "run_id": msg_task.get("run_id"),
+                "owner_id": task_owner_id
             })
-            save_ig_messages_log(logs)
+            save_ig_messages_log(logs, owner_id=task_owner_id)
             
             queue.pop(0)
             save_ig_messages_queue(queue)
@@ -4791,7 +4986,7 @@ def check_if_user_follows(user_id):
         return False, ""
 
 
-def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, run_id=None):
+def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, run_id=None, access_token=None, ig_user_id=None, owner_id=None):
     if auto.get("ask_follow") and user_id:
         is_following, api_username = check_if_user_follows(user_id)
         if not is_following:
@@ -4811,7 +5006,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                     automation_name=auto.get("name"), 
                     delay=delay, 
                     run_id=run_id, 
-                    quick_replies=quick_replies
+                    quick_replies=quick_replies,
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
                 )
             else:
                 queue_ig_message(
@@ -4822,7 +5020,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                     automation_name=auto.get("name"),
                     delay=delay,
                     quick_replies=quick_replies,
-                    run_id=run_id
+                    run_id=run_id,
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
                 )
             increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             return True
@@ -4832,11 +5033,11 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
         if comment_id:
             flow_url = auto.get("link_url")
             text = f"Click the link to start: {flow_url}"
-            send_ig_private_reply(comment_id, text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+            send_ig_private_reply(comment_id, text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
             button_delay = delay + 5
         else:
             button_delay = delay
-        start_ig_flow(user_id, auto["link_url"], username)
+        start_ig_flow(user_id, auto["link_url"], username) # Keep legacy static flow start for simplicity
         return True
 
     if action in ("dm", "both") and auto.get("dm_message"):
@@ -4869,7 +5070,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                             delay=delay, 
                             run_id=run_id,
                             buttons=configured_buttons,
-                            auto_id=auto.get("id")
+                            auto_id=auto.get("id"),
+                            access_token=access_token,
+                            ig_user_id=ig_user_id,
+                            owner_id=owner_id
                         )
                         increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
                         return True
@@ -4891,11 +5095,11 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                     }
                 ]
                 private_reply_text = personalize_ig_message(auto.get("dm_message"), username) if auto.get("dm_message") else "Hey! Thanks for commenting! Tap below to get the details:"
-                send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, quick_replies=quick_replies)
+                send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, quick_replies=quick_replies, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
                 return True
             else:
                 # Simple text-only DM. Send it directly as the private reply.
-                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+                send_ig_private_reply(comment_id, dm_body, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
                 increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
                 return True
         else:
@@ -4910,7 +5114,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                 automation_name=auto.get("name"),
                 delay=button_delay,
                 from_comment=triggered_from_comment,
-                run_id=run_id
+                run_id=run_id,
+                access_token=access_token,
+                ig_user_id=ig_user_id,
+                owner_id=owner_id
             )
             queue_ig_message(
                 recipient_id=user_id,
@@ -4920,7 +5127,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                 automation_name=auto.get("name"),
                 delay=button_delay + 1,
                 from_comment=triggered_from_comment,
-                run_id=run_id
+                run_id=run_id,
+                access_token=access_token,
+                ig_user_id=ig_user_id,
+                owner_id=owner_id
             )
             increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
@@ -4944,7 +5154,10 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                     buttons=auto.get("buttons"),
                     from_comment=triggered_from_comment,
                     run_id=run_id,
-                    auto_id=auto.get("id")
+                    auto_id=auto.get("id"),
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
                 )
             else:
                 if has_tap_step_0:
@@ -4965,21 +5178,47 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                     quick_replies=quick_replies,
                     from_comment=triggered_from_comment,
                     run_id=run_id,
-                    auto_id=auto.get("id")
+                    auto_id=auto.get("id"),
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
                 )
             increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
         else:
             if not triggered_from_comment:
-                send_ig_dm(user_id, dm_body, automation_name=auto.get("name"), delay=delay, run_id=run_id)
+                queue_ig_message(
+                    recipient_id=user_id,
+                    text=dm_body,
+                    comment_id=None,
+                    is_private_reply=False,
+                    automation_name=auto.get("name"),
+                    delay=delay,
+                    from_comment=triggered_from_comment,
+                    run_id=run_id,
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
+                )
                 increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
             
             if len(steps) > 0:
                 if steps[0].get("advance_mode") == "auto":
-                    queue_ig_follow_up_task(user_id, auto["id"], 0, steps[0].get("delay_seconds") or 0)
+                    queue_ig_follow_up_task(user_id, auto["id"], 0, steps[0].get("delay_seconds") or 0, run_id=run_id)
             elif auto.get("follow_up_message") and user_id:
                 f_delay = int(auto.get("follow_up_delay_seconds") or 3600)
-                send_ig_dm(user_id, auto["follow_up_message"], automation_name=auto.get("name"), delay=delay + f_delay)
+                queue_ig_message(
+                    recipient_id=user_id,
+                    text=auto["follow_up_message"],
+                    comment_id=None,
+                    is_private_reply=False,
+                    automation_name=auto.get("name"),
+                    delay=delay + f_delay,
+                    run_id=run_id,
+                    access_token=access_token,
+                    ig_user_id=ig_user_id,
+                    owner_id=owner_id
+                )
                 increment_ig_automation_counter_by_id(auto.get("id"), "dms_sent")
                 
                 conv_state = load_ig_conv_state()
@@ -4992,9 +5231,9 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
     return True
 
 
-def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="", username=""):
+def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="", username="", access_token=None, ig_user_id=None, owner_id=None):
     text = (text or "").lower().strip()
-    for auto in load_ig_automations():
+    for auto in load_ig_automations(owner_id=owner_id):
         if not auto.get("active", True):
             continue
         if auto.get("trigger_type", "comment") != trigger_type:
@@ -5005,7 +5244,7 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
             continue
 
         print(f"  IG Auto '{auto['name']}' matched ({trigger_type})", flush=True)
-        increment_ig_automation_counter(auto["name"], "total_runs")
+        increment_ig_automation_counter(auto["name"], "total_runs", owner_id=owner_id)
 
         # Welcome DM: only fire once per user (first-time detection)
         if trigger_type == "welcome" and user_id:
@@ -5040,15 +5279,15 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         delay_secs = random.randint(10, 200)
                         print(f"  [IG Comment Reply] Waiting {delay_secs}s before replying (human behaviour)", flush=True)
                         time.sleep(delay_secs)
-                        reply_to_ig_comment(cid, msg)
-                        increment_ig_automation_counter(aname, "replies_sent")
+                        reply_to_ig_comment(cid, msg, access_token=access_token, owner_id=owner_id)
+                        increment_ig_automation_counter(aname, "replies_sent", owner_id=owner_id)
                     except Exception as _e:
                         print(f"  [IG Comment Reply error] {_e}", flush=True)
                 threading.Thread(target=_delayed_comment_reply, daemon=True).start()
 
         # Human-behaviour random DM delay (10–200s) — each interaction gets its own delay
         dm_delay = random.randint(10, 200)
-        send_ig_automation_dm(auto, user_id, username, comment_id, dm_delay, run_id=run_id)
+        send_ig_automation_dm(auto, user_id, username, comment_id, dm_delay, run_id=run_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
         return True
     return False
 
@@ -5098,7 +5337,7 @@ def is_comment_within_7_days(created_time) -> bool:
         print(f"[Comment Date Check] Warning parsing date '{created_time}': {e}", flush=True)
         return True
 
-def handle_ig_comment(value, trigger_type="comment"):
+def handle_ig_comment(value, trigger_type="comment", access_token=None, ig_user_id=None, owner_id=None):
     comment_id = value.get("comment_id") or value.get("id", "")
     text       = (value.get("text") or "").lower().strip()
     media_id   = value.get("media", {}).get("id", "")
@@ -5108,7 +5347,8 @@ def handle_ig_comment(value, trigger_type="comment"):
         return
     print(f"[IG {trigger_type.upper()}] id={comment_id} from=@{username} text={text}", flush=True)
 
-    if IG_USER_ID and str(user_id) == str(IG_USER_ID):
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if target_ig_user_id and str(user_id) == str(target_ig_user_id):
         print("[SKIP] Own account comment", flush=True)
         return
 
@@ -5119,16 +5359,17 @@ def handle_ig_comment(value, trigger_type="comment"):
         return
 
     # Auto-hide spam comments
-    settings = load_ig_settings()
+    settings = load_ig_settings(owner_id=owner_id)
     spam_words_str = settings.get("spam_keywords", "")
     if spam_words_str:
         spam_words = [w.strip().lower() for w in spam_words_str.split(",") if w.strip()]
         if any(w in text for w in spam_words):
             print(f"[Auto-Moderation] ⚠️ Hiding comment {comment_id} due to spam match: '{text}'", flush=True)
             try:
+                target_token = access_token or PAGE_ACCESS_TOKEN
                 requests.post(
                     f"{GRAPH_URL}/{comment_id}",
-                    data={"hide": True, "access_token": PAGE_ACCESS_TOKEN},
+                    data={"hide": True, "access_token": target_token},
                     timeout=8
                 )
             except Exception as e:
@@ -5143,14 +5384,45 @@ def handle_ig_comment(value, trigger_type="comment"):
         print(f"[SKIP] Already handled (dedup_key={dedup_key})", flush=True)
         return
 
-    if run_ig_automations(trigger_type, text, media_id, comment_id, user_id, username):
+    if run_ig_automations(trigger_type, text, media_id, comment_id, user_id, username, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id):
         if trigger_type == "live":
-            bump_ig_stat("live_replies")
+            bump_ig_stat("live_replies", owner_id=owner_id)
         ig_mark_replied(dedup_key)
     print("  ---", flush=True)
 
 
-def handle_ig_messaging(event):
+def handle_ig_messaging(event, access_token=None, ig_user_id=None, owner_id=None):
+    # Local wrappers to dynamically bind credentials to sending functions in this scope
+    def local_send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, run_id=None):
+        return send_ig_automation_dm(auto, user_id, username, comment_id, delay, run_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+        
+    def local_queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False, automation_name=None, delay=0, quick_replies=None, buttons=None, from_comment=False, run_id=None, auto_id=None):
+        return queue_ig_message(recipient_id, text, comment_id, is_private_reply, automation_name, delay, quick_replies, buttons, from_comment, run_id, auto_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+
+    def local_perform_ig_button_template_send(recipient_id, follow_up_message, link_url, link_button_label, tag=None):
+        return perform_ig_button_template_send(recipient_id, follow_up_message, link_url, link_button_label, tag, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+
+    def local_perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None):
+        return perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+
+    def local_perform_ig_dm_send(user_id, message, tag=None):
+        return perform_ig_dm_send(user_id, message, tag, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+
+    def local_perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=None):
+        return perform_ig_buttons_send(recipient_id, text, buttons_list, tag, auto_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+
+    def local_increment_ig_automation_counter(name, column_name):
+        return increment_ig_automation_counter(name, column_name, owner_id=owner_id)
+
+    # Bind wrappers
+    send_ig_automation_dm = local_send_ig_automation_dm
+    queue_ig_message = local_queue_ig_message
+    perform_ig_button_template_send = local_perform_ig_button_template_send
+    perform_ig_dm_send_with_buttons = local_perform_ig_dm_send_with_buttons
+    perform_ig_dm_send = local_perform_ig_dm_send
+    perform_ig_buttons_send = local_perform_ig_buttons_send
+    increment_ig_automation_counter = local_increment_ig_automation_counter
+
     sender_id = event.get("sender", {}).get("id", "")
     recipient_id = event.get("recipient", {}).get("id", "")
     message   = event.get("message", {}) or {}
@@ -5158,7 +5430,8 @@ def handle_ig_messaging(event):
     
     # Identify actual user (follower) ID to avoid registering the bot itself
     actual_user_id = recipient_id if is_echo else sender_id
-    if actual_user_id and str(actual_user_id) != str(IG_USER_ID):
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if actual_user_id and str(actual_user_id) != str(target_ig_user_id):
         save_last_tester(actual_user_id, "")
         if not is_echo:
             record_user_interaction(actual_user_id)
@@ -5611,7 +5884,13 @@ def handle_ig_messaging(event):
                     return
 
 
-def handle_ig_mention(value):
+def handle_ig_mention(value, access_token=None, ig_user_id=None, owner_id=None):
+    # Local wrapper to dynamically bind credentials to run_ig_automations
+    def local_run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="", username=""):
+        return run_ig_automations(trigger_type, text, media_id, comment_id, user_id, username, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
+        
+    run_ig_automations = local_run_ig_automations
+
     """
     Handle @mention of our IG account in someone else's post/story.
     Webhook field: mentions / mention_tag
@@ -5622,7 +5901,8 @@ def handle_ig_mention(value):
     text     = (value.get("text") or "").lower().strip()
     print(f"[IG MENTION] from=@{username} media={media_id} text={text}", flush=True)
 
-    if IG_USER_ID and str(user_id) == str(IG_USER_ID):
+    target_ig_user_id = ig_user_id or IG_USER_ID
+    if target_ig_user_id and str(user_id) == str(target_ig_user_id):
         print("[SKIP] Own account mention", flush=True)
         return
 
@@ -9136,17 +9416,29 @@ def webhook():
     for entry in data.get("entry", []):
         # Instagram webhooks (separate automation engine)
         if obj == "instagram":
+            entry_id = entry.get("id")
+            # Look up connection details
+            conn_data = db_execute("SELECT access_token, instagram_business_account_id FROM ig_review_demo_connections WHERE instagram_business_account_id = ?", (entry_id,))
+            if conn_data:
+                resolved_token = conn_data[0]["access_token"]
+                resolved_ig_user_id = conn_data[0]["instagram_business_account_id"]
+                resolved_owner_id = entry_id
+            else:
+                resolved_token = None
+                resolved_ig_user_id = None
+                resolved_owner_id = None
+
             for change in entry.get("changes", []):
                 field = change.get("field")
                 value = change.get("value", {})
                 if field == "comments":
-                    handle_ig_comment(value, "comment")
+                    handle_ig_comment(value, "comment", access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
                 elif field == "live_comments":
-                    handle_ig_comment(value, "live")
+                    handle_ig_comment(value, "live", access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
                 elif field in ("mentions", "mention_tag"):
-                    handle_ig_mention(value)
+                    handle_ig_mention(value, access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
             for event in entry.get("messaging", []):
-                handle_ig_messaging(event)
+                handle_ig_messaging(event, access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
             continue
 
         # WhatsApp webhooks (official Meta Cloud API)
@@ -9670,11 +9962,15 @@ def auth_instagram_callback():
             return "Could not find a connected Instagram Business Account on any of your Facebook Pages. Please link your Instagram Business Account to your Facebook Page.", 400
             
         # 4. Save to database
+        # 4. Save to database
         db_execute(
             "INSERT OR REPLACE INTO ig_review_demo_connections (username, profile_picture_url, access_token, instagram_business_account_id, connected_at) VALUES (?, ?, ?, ?, ?)",
             (resolved_username, resolved_profile_pic, long_lived_token, ig_account_id, time.time()),
             commit=True
         )
+        
+        session["connected_ig_id"] = ig_account_id
+        session["connected_ig_username"] = resolved_username
         
         return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
         
@@ -9684,6 +9980,8 @@ def auth_instagram_callback():
 @app.route("/auth/instagram/disconnect", methods=["POST"])
 def auth_instagram_disconnect():
     db_execute("DELETE FROM ig_review_demo_connections", commit=True)
+    session.pop("connected_ig_id", None)
+    session.pop("connected_ig_username", None)
     return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
 
 @app.route("/instagram/review-demo")
@@ -9694,6 +9992,9 @@ def instagram_review_demo():
         ig_user_id = connection["instagram_business_account_id"]
         token = connection["access_token"]
         media = fetch_ig_media_for_demo(ig_user_id, token)
+        if "connected_ig_id" not in session:
+            session["connected_ig_id"] = ig_user_id
+            session["connected_ig_username"] = connection["username"]
         
     prefixed_html = (
         REVIEW_DEMO_HTML
@@ -9794,6 +10095,11 @@ REVIEW_DEMO_HTML = """
     </div>
 
     {% if connection %}
+      <div class="section-title">Automations Control Center (OAuth Scoped)</div>
+      <div class="card" style="padding: 0; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 18px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 28px;">
+        <iframe src="/fb/instagram" style="width: 100%; height: 800px; border: none; display: block;"></iframe>
+      </div>
+
       <div class="section-title">Recent Media (OAuth Token Scoped)</div>
       {% if not media %}
         <div style="text-align:center; padding:40px; color:#6b7280; background:#fff; border-radius:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
@@ -9827,6 +10133,7 @@ REVIEW_DEMO_HTML = """
 if __name__ == "__main__":
     import threading
     _migrate_reply_texts_column()  # Add reply_texts column to existing DBs
+    _migrate_owner_id_columns()     # Add owner_id columns for multi-tenant isolation
     threading.Thread(target=ig_queue_worker, daemon=True).start()
     threading.Thread(target=ig_scheduler_worker, daemon=True).start()
     threading.Thread(target=ig_token_health_worker, daemon=True).start()
