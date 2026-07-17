@@ -1071,8 +1071,14 @@ def handle_comment(value):
             print(f"  Auto '{auto['name']}' matched")
             action = auto.get("action", "comment")
 
-            if action in ("comment", "both") and auto.get("reply"):
-                reply_to_comment(comment_id, auto["reply"])
+            if action in ("comment", "both"):
+                # Pick one reply from reply_texts variations (or fall back to single reply)
+                reply_texts = [t for t in (auto.get("reply_texts") or []) if t and t.strip()]
+                if not reply_texts and auto.get("reply"):
+                    reply_texts = [auto["reply"]]
+                if reply_texts:
+                    chosen_reply = random.choice(reply_texts)
+                    reply_to_comment(comment_id, chosen_reply)
 
             if action in ("dm", "both") and auto.get("dm_message"):
                 send_private_reply(comment_id, auto["dm_message"])
@@ -4766,7 +4772,7 @@ def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, l
     except Exception as e:
         return False, str(e)
 
-def send_ig_private_reply(comment_id, message, recipient_id=None, automation_name=None, delay=0, run_id=None, quick_replies=None, buttons=None, auto_id=None):
+def send_ig_private_reply(comment_id, message, recipient_id=None, automation_name=None, delay=0, run_id=None, quick_replies=None, buttons=None, auto_id=None, access_token=None, ig_user_id=None, owner_id=None):
     queue_ig_message(
         recipient_id=recipient_id,
         text=message,
@@ -4777,10 +4783,13 @@ def send_ig_private_reply(comment_id, message, recipient_id=None, automation_nam
         run_id=run_id,
         quick_replies=quick_replies,
         buttons=buttons,
-        auto_id=auto_id
+        auto_id=auto_id,
+        access_token=access_token,
+        ig_user_id=ig_user_id,
+        owner_id=owner_id
     )
 
-def send_ig_dm(user_id, message, automation_name=None, delay=0, run_id=None):
+def send_ig_dm(user_id, message, automation_name=None, delay=0, run_id=None, access_token=None, ig_user_id=None, owner_id=None):
     queue_ig_message(
         recipient_id=user_id,
         text=message,
@@ -4788,7 +4797,10 @@ def send_ig_dm(user_id, message, automation_name=None, delay=0, run_id=None):
         is_private_reply=False,
         automation_name=automation_name,
         delay=delay,
-        run_id=run_id
+        run_id=run_id,
+        access_token=access_token,
+        ig_user_id=ig_user_id,
+        owner_id=owner_id
     )
 
 import random
@@ -4901,22 +4913,18 @@ def ig_queue_worker():
                                         recipient_id, auto_id, next_idx, next_step.get("delay_seconds") or 0, run_id=msg_task.get("run_id")
                                     )
                 
-                queue.pop(0)
-                save_ig_messages_queue(queue)
                 continue
-            
+
             is_private_reply = msg_task.get("is_private_reply", False)
-            automation_name = msg_task.get("automation_name", "manual")
-            
-            # Rule 2: One private reply per comment, within 7 days.
-            comment_id = msg_task.get("comment_id")
-            
-            # Rule 3: One automated DM per user per 24-hour period from a comment or story trigger
+            automation_name  = msg_task.get("automation_name", "manual")
+            comment_id       = msg_task.get("comment_id")
+
+            # Rule 3: One automated DM per user per 24-hour period
             if automation_name != "manual" and recipient_id and not is_private_reply:
                 twenty_four_hours_ago = time.time() - 86400
                 already_sent_24h = any(
-                    log.get("recipient_id") == recipient_id and 
-                    log.get("sent_at", 0) >= twenty_four_hours_ago and 
+                    log.get("recipient_id") == recipient_id and
+                    log.get("sent_at", 0) >= twenty_four_hours_ago and
                     log.get("status") == "success" and
                     log.get("is_automated", True) and
                     not log.get("is_private_reply", False) and
@@ -4924,9 +4932,7 @@ def ig_queue_worker():
                     for log in logs
                 )
                 if already_sent_24h:
-                    print(f"[IG Worker] 🚫 24h automated DM rule check failed for user {recipient_id}. Skipping.", flush=True)
-                    queue.pop(0)
-                    save_ig_messages_queue(queue)
+                    print(f"[IG Worker] 🚫 24h rule: skipping DM to {recipient_id}.", flush=True)
                     logs.append({
                         "recipient_id": recipient_id,
                         "text": msg_task.get("text"),
@@ -4941,70 +4947,45 @@ def ig_queue_worker():
                     save_ig_messages_log(logs, owner_id=task_owner_id)
                     continue
 
-            # Rule 4: 24-hour standard messaging window + tags compliance
+            # Rule 4: 24-hour messaging window (skip for comment-triggered and private reply DMs)
             tag_to_use = None
             from_comment = msg_task.get("from_comment", False)
             if not is_private_reply and not from_comment and recipient_id:
                 last_interaction_time = get_last_user_interaction_time(recipient_id)
                 now = time.time()
                 is_outside_24h = last_interaction_time is None or (now - last_interaction_time > 86400)
-                
+
                 if is_outside_24h:
                     if automation_name == "manual":
                         if last_interaction_time is not None and (now - last_interaction_time <= 604800):
                             tag_to_use = "HUMAN_AGENT"
-                            print(f"[IG Worker] User {recipient_id} outside 24h but inside 7-day manual window. Applying HUMAN_AGENT tag.", flush=True)
                         else:
-                            print(f"[IG Worker] User {recipient_id} outside 7-day manual window. Skipping manual reply.", flush=True)
-                            queue.pop(0)
-                            save_ig_messages_queue(queue)
-                            logs.append({
-                                "recipient_id": recipient_id,
-                                "text": msg_task.get("text"),
-                                "status": "outside_manual_7day_window",
-                                "sent_at": time.time(),
-                                "is_automated": False,
-                                "owner_id": task_owner_id
-                            })
+                            logs.append({"recipient_id": recipient_id, "text": msg_task.get("text"),
+                                         "status": "outside_manual_7day_window", "sent_at": time.time(),
+                                         "is_automated": False, "owner_id": task_owner_id})
                             save_ig_messages_log(logs, owner_id=task_owner_id)
                             continue
                     else:
-                        print(f"[IG Worker] User {recipient_id} outside 24h automated window. Skipping automated reply.", flush=True)
-                        queue.pop(0)
-                        save_ig_messages_queue(queue)
-                        logs.append({
-                            "recipient_id": recipient_id,
-                            "text": msg_task.get("text"),
-                            "status": "outside_messaging_window",
-                            "sent_at": time.time(),
-                            "is_automated": True,
-                            "owner_id": task_owner_id
-                        })
+                        logs.append({"recipient_id": recipient_id, "text": msg_task.get("text"),
+                                     "status": "outside_messaging_window", "sent_at": time.time(),
+                                     "is_automated": True, "owner_id": task_owner_id})
                         save_ig_messages_log(logs, owner_id=task_owner_id)
                         continue
             elif from_comment and not is_private_reply:
-                print(f"[IG Worker] from_comment=True for {recipient_id}, bypassing 24h window check (private reply opened window).", flush=True)
+                print(f"[IG Worker] from_comment=True for {recipient_id}, bypassing 24h window check.", flush=True)
 
-            # Human-like delay: 1-4 seconds
-            rand_delay = random.uniform(1.0, 4.0)
-            task_delay = float(msg_task.get("delay") or 0)
-            total_delay = rand_delay + task_delay
-            
-            print(f"[IG Worker] Waiting {total_delay:.1f}s before sending...", flush=True)
-            time.sleep(total_delay)
-            
-            text = msg_task.get("text")
+            # Small human-like pause (task delay already baked into scheduled_at)
+            time.sleep(random.uniform(1.0, 3.0))
+
+            text    = msg_task.get("text")
             auto_id = msg_task.get("auto_id")
             if is_private_reply and comment_id:
                 success, error_message = perform_ig_private_reply_send(
-                    comment_id, 
-                    text, 
+                    comment_id, text,
                     quick_replies=msg_task.get("quick_replies"),
                     buttons=msg_task.get("buttons"),
                     auto_id=auto_id,
-                    access_token=task_token,
-                    ig_user_id=task_ig_user_id,
-                    owner_id=task_owner_id
+                    access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
                 )
             elif msg_task.get("buttons"):
                 success, error_message = perform_ig_buttons_send(
@@ -5021,7 +5002,7 @@ def ig_queue_worker():
                     recipient_id, text, tag=tag_to_use,
                     access_token=task_token, ig_user_id=task_ig_user_id, owner_id=task_owner_id
                 )
-                
+
             logs.append({
                 "recipient_id": recipient_id,
                 "text": text,
@@ -5034,10 +5015,7 @@ def ig_queue_worker():
                 "owner_id": task_owner_id
             })
             save_ig_messages_log(logs, owner_id=task_owner_id)
-            
-            queue.pop(0)
-            save_ig_messages_queue(queue)
-            
+
         except Exception as e:
             print(f"[IG Worker] Exception in loop: {e}", flush=True)
             time.sleep(5)
