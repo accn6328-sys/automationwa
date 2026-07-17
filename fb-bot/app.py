@@ -48,6 +48,30 @@ IG_DM_COMMENT_VARIATIONS = [
     "Just popped into your DMs with the link! Let me know if you need anything else.",
 ]
 
+IG_DM_REPLY_VARIATIONS = [
+    "👋 Hey there! Here's the link you were waiting for! 🔗✨ Hope you love it! 😊",
+    "🎉 It's here! Check out the link below 👇🔗 Let me know what you think! 💬",
+    "🚀 As promised, here's your link! 🔗 Hope it helps. Enjoy! 😄",
+    "💙 Hey! Just dropping the link here for you. 👇✨ Feel free to check it out anytime!",
+    "🌟 Your link has arrived! 🔗🎁 Hope you find it useful. Let me know if you need anything else!",
+    "👀 Don't miss this! Here's the link you've been looking for. 🔗✨",
+    "📩 Just sending this your way! 🔗😊 Hope it makes your day a little easier.",
+    "🔥 Here's the magic link! ✨🔗 Go take a look and let me know what you think!",
+    "🎯 Right on time! Here's the link for you. 👇🔗 Enjoy exploring! 😎",
+    "💫 Hey! Sharing the link with you now. 🔗 Hope you find exactly what you're looking for!",
+    "🙌 Thanks for waiting! Here's your link. 🔗✨ Happy browsing!",
+    "😄 Hey friend! Here's the link. 👇🔗 Can't wait to hear your thoughts!",
+    "⚡ Quick drop! Here's the link you asked for. 🔗 Let me know if you need any help.",
+    "🎁 A little something for you! Here's the link. 🔗 Hope you enjoy it!",
+    "🌈 Here you go! ✨ The link is below. 🔗 Wishing you an awesome experience!",
+    "💥 Finally! Here's the link. 👇🔗 Hope it's exactly what you needed!",
+    "❤️ Sharing this with you! Here's the link. 🔗 Hope you find it valuable!",
+    "🤩 You're all set! Here's the link. 🔗 Enjoy, and let me know how it goes!",
+    "✨ One click away! Here's your link. 🔗 Hope you have a great experience!",
+    "🎊 Yay! Here's the link for you! 🔗😊 Have fun checking it out, and don't hesitate to reach out if you have any questions!"
+]
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("APP_SECRET") or "ig-review-demo-secret-key-12345"
 
@@ -202,7 +226,8 @@ def init_sqlite_db():
         link_button_label TEXT,
         follow_up_steps TEXT,
         buttons TEXT,
-        created_time TEXT
+        created_time TEXT,
+        dm_texts TEXT
     );
     CREATE TABLE IF NOT EXISTS fb_automations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,7 +260,8 @@ def init_sqlite_db():
         link_button_label TEXT,
         follow_up_steps TEXT,
         buttons TEXT,
-        created_time TEXT
+        created_time TEXT,
+        dm_texts TEXT
     );
     CREATE TABLE IF NOT EXISTS ig_leads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -709,7 +735,8 @@ def load_automations():
                 "link_button_label": r["link_button_label"],
                 "follow_up_steps": json.loads(r["follow_up_steps"] or "[]"),
                 "buttons": json.loads(r["buttons"] or "[]"),
-                "created_time": r["created_time"] if "created_time" in r.keys() else None
+                "created_time": r["created_time"] if "created_time" in r.keys() else None,
+                "dm_texts": json.loads(r["dm_texts"] or "[]") if "dm_texts" in r.keys() else []
             })
     except Exception as e:
         print(f"[load_automations DB error] {e}")
@@ -760,8 +787,8 @@ def save_automations(data):
                     keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, 
                     follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, 
                     follow_gate_conversions, button_enabled, button_label, button_follow_up_message, 
-                    link_button_label, follow_up_steps, buttons, created_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    link_button_label, follow_up_steps, buttons, created_time, dm_texts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     r.get("name"),
@@ -793,7 +820,8 @@ def save_automations(data):
                     r.get("link_button_label"),
                     json.dumps(r.get("follow_up_steps") or []),
                     json.dumps(r.get("buttons") or []),
-                    r.get("created_time")
+                    r.get("created_time"),
+                    json.dumps(r.get("dm_texts") or [])
                 ),
                 commit=True
             )
@@ -1123,6 +1151,33 @@ def _migrate_reply_texts_column():
     finally:
         conn.close()
 
+def _migrate_dm_texts_column():
+    """One-time migration: add dm_texts column to ig_automations and fb_automations if they don't exist yet."""
+    conn = get_db_conn()
+    try:
+        cursor = conn.cursor()
+        
+        # 1. ig_automations
+        cursor.execute("PRAGMA table_info(ig_automations)")
+        cols = [row["name"] for row in cursor.fetchall()]
+        if cols and "dm_texts" not in cols:
+            cursor.execute("ALTER TABLE ig_automations ADD COLUMN dm_texts TEXT")
+            conn.commit()
+            print("[DB Migration] Added dm_texts column to ig_automations", flush=True)
+            
+        # 2. fb_automations
+        cursor.execute("PRAGMA table_info(fb_automations)")
+        cols = [row["name"] for row in cursor.fetchall()]
+        if cols and "dm_texts" not in cols:
+            cursor.execute("ALTER TABLE fb_automations ADD COLUMN dm_texts TEXT")
+            conn.commit()
+            print("[DB Migration] Added dm_texts column to fb_automations", flush=True)
+    except Exception as e:
+        print(f"[DB Migration] dm_texts migration error: {e}", flush=True)
+    finally:
+        conn.close()
+
+
 def _migrate_owner_id_columns():
     """One-time migration: add owner_id column to tables if they don't exist yet."""
     tables = [
@@ -1226,7 +1281,8 @@ def load_ig_automations(owner_id=None):
                 "follow_up_steps": json.loads(r["follow_up_steps"] or "[]") if "follow_up_steps" in r.keys() else [],
                 "buttons": json.loads(r["buttons"] or "[]") if "buttons" in r.keys() else [],
                 "created_time": r["created_time"] if "created_time" in r.keys() else None,
-                "id": r["id"] if "id" in r.keys() else None
+                "id": r["id"] if "id" in r.keys() else None,
+                "dm_texts": json.loads(r["dm_texts"] or "[]") if "dm_texts" in r.keys() else []
             })
         try:
             # Sort so that the latest uploaded media rules show first in the UI
@@ -1268,7 +1324,7 @@ def save_ig_automations(data, owner_id=None):
                 # Keep legacy reply field in sync with first variation
                 legacy_reply = reply_texts[0] if reply_texts else (rule.get("reply") or "")
                 cursor.execute(
-                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons, created_time, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO ig_automations (name, reply, reply_texts, action, dm_message, trigger_type, scope, post_ids, thumbnail, keyword_type, keywords, active, delay_seconds, link_url, follow_up_message, ask_follow, follow_prompt, email_capture, email_prompt, total_runs, dms_sent, replies_sent, follow_gate_conversions, button_enabled, button_label, button_follow_up_message, link_button_label, follow_up_steps, buttons, created_time, owner_id, dm_texts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         rule.get("name"),
                         legacy_reply,
@@ -1300,7 +1356,8 @@ def save_ig_automations(data, owner_id=None):
                         json.dumps(rule.get("follow_up_steps") or []),
                         json.dumps(rule.get("buttons") or []),
                         rule.get("created_time"),
-                        owner_id
+                        owner_id,
+                        json.dumps(rule.get("dm_texts") or [])
                     )
                 )
             conn.commit()
@@ -2114,7 +2171,15 @@ def build_ig_dm_body(auto, username=""):
     parts = []
     if auto.get("ask_follow") and auto.get("follow_prompt"):
         parts.append(auto["follow_prompt"])
-    dm = personalize_ig_message(auto.get("dm_message", ""), username)
+        
+    dm_texts = auto.get("dm_texts") or []
+    dm_texts = [t for t in dm_texts if t and t.strip()]
+    if dm_texts:
+        import random
+        dm = personalize_ig_message(random.choice(dm_texts), username)
+    else:
+        dm = personalize_ig_message(auto.get("dm_message", ""), username)
+        
     if dm:
         parts.append(dm)
     if auto.get("link_url") and not auto.get("button_enabled"):
@@ -5131,7 +5196,15 @@ def send_ig_automation_dm(auto, user_id, username="", comment_id=None, delay=0, 
                         "payload": f"IGDETAILS_TAP_{auto.get('id')}_{run_id}"
                     }
                 ]
-                private_reply_text = personalize_ig_message(auto.get("dm_message"), username) if auto.get("dm_message") else "Hey! Thanks for commenting! Tap below to get the details:"
+                dm_texts = auto.get("dm_texts") or []
+                dm_texts = [t for t in dm_texts if t and t.strip()]
+                if dm_texts:
+                    import random
+                    chosen_dm = random.choice(dm_texts)
+                else:
+                    chosen_dm = auto.get("dm_message")
+                
+                private_reply_text = personalize_ig_message(chosen_dm, username) if chosen_dm else "Hey! Thanks for commenting! Tap below to get the details:"
                 send_ig_private_reply(comment_id, private_reply_text, recipient_id=user_id, automation_name=auto.get("name"), delay=delay, run_id=run_id, quick_replies=quick_replies, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
                 return True
             else:
@@ -8443,6 +8516,7 @@ def automate_single_media_post(m, products, fb_posts):
             ],
             "action": "both",
             "dm_message": "Hey there 😊 Here is the link ",
+            "dm_texts": IG_DM_REPLY_VARIATIONS,
             "trigger_type": "comment",
             "scope": "specific",
             "post_ids": [media_id],
@@ -10420,6 +10494,7 @@ REVIEW_DEMO_HTML = """
 if __name__ == "__main__":
     import threading
     _migrate_reply_texts_column()  # Add reply_texts column to existing DBs
+    _migrate_dm_texts_column()     # Add dm_texts column to existing DBs
     _migrate_owner_id_columns()     # Add owner_id columns for multi-tenant isolation
     threading.Thread(target=ig_queue_worker, daemon=True).start()
     threading.Thread(target=ig_scheduler_worker, daemon=True).start()
