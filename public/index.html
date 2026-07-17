@@ -2235,6 +2235,16 @@ function renderIgRules() {
         });
     }
 
+    // 1b. Sort by created_time DESC (latest video upload first, rules without created_time go last)
+    rulesToProcess = [...rulesToProcess].sort((a, b) => {
+      const aTime = a.created_time || '';
+      const bTime = b.created_time || '';
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;   // a has no time → push to end
+      if (!bTime) return -1;  // b has no time → push to end
+      return bTime.localeCompare(aTime); // DESC: latest first
+    });
+
     if (rulesToProcess.length === 0) {
         tbody.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:35px;">No Instagram automation rules found.</div>';
         const paginationContainer = document.getElementById('sp-rules-pagination');
@@ -2480,7 +2490,7 @@ function openEditIgRuleModal(idx) {
   igwzSelectedPostIds = {};
   if (rule.post_ids && Array.isArray(rule.post_ids)) {
     rule.post_ids.forEach(id => {
-      igwzSelectedPostIds[id] = { id: id };
+      igwzSelectedPostIds[id] = { id: id, thumbnail: rule.thumbnail || '', timestamp: rule.created_time || '' };
     });
   }
   
@@ -3095,6 +3105,20 @@ async function igwzNext() {
       originalCreatedTime = igRules[editingIgRuleIdx].created_time;
     }
 
+    // Resolve thumbnail: from selected post, from existing rule, or empty
+    let ruleThumbnail = '';
+    if (igwzData.scope === 'specific' && igwzData.post_ids && igwzData.post_ids.length > 0) {
+      const firstId = igwzData.post_ids[0];
+      const selPost = igwzSelectedPostIds[firstId];
+      if (selPost && selPost.thumbnail) {
+        ruleThumbnail = selPost.thumbnail;
+      }
+    }
+    // Fallback: preserve thumbnail from the existing rule being edited
+    if (!ruleThumbnail && editingIgRuleIdx !== null && igRules[editingIgRuleIdx]) {
+      ruleThumbnail = igRules[editingIgRuleIdx].thumbnail || '';
+    }
+
     const payload = {
       name: igwzData.name,
       trigger_type: igwzData.type,
@@ -3102,6 +3126,7 @@ async function igwzNext() {
       keywords: igwzData.trigger === 'keyword' ? igwzData.keywords : [],
       scope: igwzData.scope,
       post_ids: igwzData.post_ids || [],
+      thumbnail: ruleThumbnail,
       dm_message: igwzData.dmMessage,
       reply: hasComment ? igwzData.publicReply : '',
       reply_texts: hasComment ? igwzData.publicReplyTexts : [],
