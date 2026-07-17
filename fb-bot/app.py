@@ -1040,11 +1040,11 @@ def handle_comment(value):
         return
 
     # ── Duplicate guard ───────────────────────────────────────────────────────
-    # Use user_id+post_id+text as dedup key because Facebook sends same
-    # comment with different comment_ids in multiple webhook events
-    dedup_key = f"{user_id}:{post_id}:{comment_text}"
+    # Deduplicate by comment_id — each unique comment always triggers a reply.
+    # If Facebook retries the same webhook event, comment_id is identical → skip.
+    dedup_key = f"fb:comment:{comment_id}"
     if fb_check_and_mark_replied(dedup_key):
-        print(f"[SKIP] Already replied to this comment (dedup_key={dedup_key})")
+        print(f"[SKIP] Already replied to comment (comment_id={comment_id})")
         return
 
     automations = load_automations()
@@ -1449,17 +1449,36 @@ def increment_ig_automation_counter_by_id(auto_id, column_name):
             conn.close()
 
 def queue_ig_follow_up_task(recipient_id, auto_id, step_index, delay, run_id=None):
-    queue = load_ig_messages_queue()
-    queue.append({
+    auto = get_ig_automation_by_id(auto_id)
+    owner_id = auto.get("owner_id") if auto else None
+    
+    payload_data = {
         "recipient_id": recipient_id,
         "is_follow_up": True,
         "auto_id": auto_id,
         "step_index": step_index,
         "queued_at": time.time(),
         "delay": delay,
-        "run_id": run_id
-    })
-    save_ig_messages_queue(queue)
+        "run_id": run_id,
+        "owner_id": owner_id
+    }
+    
+    scheduled_at = time.time() + float(delay)
+    
+    with db_lock:
+        conn = get_db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO ig_messages_queue (payload, scheduled_at, processed, owner_id) VALUES (?, ?, 0, ?)",
+                (json.dumps(payload_data), scheduled_at, owner_id)
+            )
+            conn.commit()
+            print(f"[Queue] Queued follow-up task to {recipient_id}: auto_id={auto_id}, step={step_index} (scheduled_at={scheduled_at})", flush=True)
+        except Exception as e:
+            print(f"Error queueing follow-up task: {e}")
+        finally:
+            conn.close()
 
 def load_ig_stats(owner_id=None):
     if owner_id is None:
@@ -4345,9 +4364,15 @@ def get_last_user_interaction_time(user_id):
     interactions = load_ig_user_interactions()
     return interactions.get(str(user_id))
 
-def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False, automation_name=None, delay=0, quick_replies=None, buttons=None, from_comment=False, run_id=None, auto_id=None):
-    queue = load_ig_messages_queue()
-    queue.append({
+def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False, automation_name=None, delay=0, quick_replies=None, buttons=None, from_comment=False, run_id=None, auto_id=None, access_token=None, ig_user_id=None, owner_id=None):
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+
+    payload_data = {
         "recipient_id": recipient_id,
         "text": text,
         "comment_id": comment_id,
@@ -4359,10 +4384,28 @@ def queue_ig_message(recipient_id, text, comment_id=None, is_private_reply=False
         "buttons": buttons,
         "from_comment": from_comment,
         "run_id": run_id,
-        "auto_id": auto_id
-    })
-    save_ig_messages_queue(queue)
-    print(f"[Queue] Queued message to {recipient_id}: {text[:30]}... (from_comment={from_comment}, run_id={run_id}, auto_id={auto_id})", flush=True)
+        "auto_id": auto_id,
+        "access_token": access_token,
+        "ig_user_id": ig_user_id,
+        "owner_id": owner_id
+    }
+    
+    scheduled_at = time.time() + float(delay or 0)
+    
+    with db_lock:
+        conn = get_db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO ig_messages_queue (payload, scheduled_at, processed, owner_id) VALUES (?, ?, 0, ?)",
+                (json.dumps(payload_data), scheduled_at, owner_id)
+            )
+            conn.commit()
+            print(f"[Queue] Queued message to {recipient_id}: {text[:30]}... (scheduled_at={scheduled_at}, run_id={run_id})", flush=True)
+        except Exception as e:
+            print(f"Error queueing IG message: {e}")
+        finally:
+            conn.close()
 
 def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None, access_token=None, ig_user_id=None, owner_id=None) -> tuple[bool, str]:
     target_token = access_token or PAGE_ACCESS_TOKEN
@@ -4749,36 +4792,67 @@ def send_ig_dm(user_id, message, automation_name=None, delay=0, run_id=None):
     )
 
 import random
+
+def _claim_next_ig_queue_task():
+    """Atomically claim the next ready task from ig_messages_queue.
+    Returns (row_id, payload_dict) or (None, None) if nothing is ready.
+    The row is immediately marked processed=1 inside the db_lock so no
+    other process/thread can claim the same task."""
+    with db_lock:
+        conn = get_db_conn()
+        try:
+            cursor = conn.cursor()
+            now = time.time()
+            cursor.execute(
+                "SELECT id, payload FROM ig_messages_queue WHERE processed = 0 AND scheduled_at <= ? ORDER BY id LIMIT 1",
+                (now,)
+            )
+            row = cursor.fetchone()
+            if row:
+                task_id = row["id"]
+                cursor.execute("UPDATE ig_messages_queue SET processed = 1 WHERE id = ?", (task_id,))
+                conn.commit()
+                return task_id, json.loads(row["payload"])
+            return None, None
+        except Exception as e:
+            print(f"[IG Worker] Error claiming task: {e}", flush=True)
+            return None, None
+        finally:
+            conn.close()
+
 def ig_queue_worker():
     print("[IG Worker] Started Instagram queue worker thread.", flush=True)
     while True:
         try:
-            queue = load_ig_messages_queue()
-            if not queue:
-                time.sleep(3)
+            task_id, msg_task = _claim_next_ig_queue_task()
+            if msg_task is None:
+                time.sleep(2)
                 continue
-                
-            # Process the first task
-            msg_task = queue[0]
-            recipient_id = msg_task.get("recipient_id")
-            
-            task_token = msg_task.get("access_token")
+
+            recipient_id    = msg_task.get("recipient_id")
+            task_token      = msg_task.get("access_token")
             task_ig_user_id = msg_task.get("ig_user_id")
-            task_owner_id = msg_task.get("owner_id")
-            
-            # Count successful DMs sent in the last 1 hour for this owner context
+            task_owner_id   = msg_task.get("owner_id")
+
+            # Rolling hourly rate limit check
             logs = load_ig_messages_log(owner_id=task_owner_id)
             one_hour_ago = time.time() - 3600
             sent_in_last_hour = sum(1 for log in logs if log.get("sent_at", 0) >= one_hour_ago and log.get("status") == "success")
-            
             if sent_in_last_hour >= 200:
-                print(f"[IG Worker] Rolling hourly rate limit reached ({sent_in_last_hour}/200). Waiting 30s...", flush=True)
+                print(f"[IG Worker] Rolling hourly rate limit reached ({sent_in_last_hour}/200). Re-queuing task...", flush=True)
+                with db_lock:
+                    conn = get_db_conn()
+                    try:
+                        conn.execute("UPDATE ig_messages_queue SET processed = 0 WHERE id = ?", (task_id,))
+                        conn.commit()
+                    finally:
+                        conn.close()
                 time.sleep(30)
                 continue
-                
+
             # ── Follow-up Sequence Worker ──
             if msg_task.get("is_follow_up"):
-                auto_id = msg_task.get("auto_id")
+                auto_id    = msg_task.get("auto_id")
                 step_index = msg_task.get("step_index")
                 auto = get_ig_automation_by_id(auto_id)
                 if auto:
@@ -4786,11 +4860,6 @@ def ig_queue_worker():
                     if step_index < len(steps):
                         step = steps[step_index]
                         text = step.get("message") or ""
-                        
-                        task_delay = float(msg_task.get("delay") or 0)
-                        total_delay = random.uniform(1.0, 4.0) + task_delay
-                        print(f"[IG Worker] Waiting {total_delay:.1f}s for follow-up step {step_index}...", flush=True)
-                        time.sleep(total_delay)
                         
                         if step.get("link_url"):
                             success, error_message = perform_ig_button_template_send(
@@ -5378,10 +5447,10 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
             if reply_texts:
                 chosen_reply = personalize_ig_message(random.choice(reply_texts), username)
                 auto_name_snap = auto.get("name", "")
-                # Fire after a random 10–200s human-behaviour delay in a background thread
+                # Fire after a short 3–8s human-look delay in a background thread
                 def _delayed_comment_reply(cid=comment_id, msg=chosen_reply, aname=auto_name_snap):
                     try:
-                        delay_secs = random.randint(10, 200)
+                        delay_secs = random.randint(3, 8)
                         print(f"  [IG Comment Reply] Waiting {delay_secs}s before replying (human behaviour)", flush=True)
                         time.sleep(delay_secs)
                         reply_to_ig_comment(cid, msg, access_token=access_token, owner_id=owner_id)
@@ -5390,8 +5459,8 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         print(f"  [IG Comment Reply error] {_e}", flush=True)
                 threading.Thread(target=_delayed_comment_reply, daemon=True).start()
 
-        # Human-behaviour random DM delay (10–200s) — each interaction gets its own delay
-        dm_delay = random.randint(10, 200)
+        # DM delay: 0 — the queue worker's scheduled_at handles the timing
+        dm_delay = 0
         send_ig_automation_dm(auto, user_id, username, comment_id, dm_delay, run_id=run_id, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id)
         return True
     return False
