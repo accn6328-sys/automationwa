@@ -13,6 +13,7 @@ import { promisify } from 'util';
 import ffmpegPath from 'ffmpeg-static';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import os from 'os';
+import crypto from 'crypto';
 
 const execPromise = promisify(exec);
 
@@ -1491,6 +1492,132 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ── Auth System (HMAC-signed cookie, no extra deps) ─────────────────────────
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'radikikktok2024';
+const AUTH_SECRET        = process.env.AUTH_COOKIE_SECRET  || 'rkk-auth-secret-9f2a';
+const AUTH_COOKIE_NAME   = 'rkk_auth';
+const AUTH_MAX_AGE       = 7 * 24 * 60 * 60; // 7 days in seconds
+
+// Public routes that do NOT require a login
+const PUBLIC_PATHS = new Set([
+    '/login', '/logout',
+    '/privacy-policy', '/terms-of-service', '/data-deletion'
+]);
+
+function signValue(val) {
+    const sig = crypto.createHmac('sha256', AUTH_SECRET).update(val).digest('base64url');
+    return `${val}.${sig}`;
+}
+function verifyValue(signed) {
+    const idx = signed.lastIndexOf('.');
+    if (idx === -1) return null;
+    const val = signed.slice(0, idx);
+    const expected = signValue(val);
+    if (expected !== signed) return null;
+    return val;
+}
+function parseCookies(header = '') {
+    return Object.fromEntries(
+        header.split(';').map(c => c.trim().split('=')).filter(([k]) => k).map(([k, ...v]) => [k.trim(), v.join('=').trim()])
+    );
+}
+function isAuthenticated(req) {
+    const cookies = parseCookies(req.headers.cookie);
+    const signed = cookies[AUTH_COOKIE_NAME];
+    if (!signed) return false;
+    return verifyValue(decodeURIComponent(signed)) === 'authenticated';
+}
+function setAuthCookie(res) {
+    const val = encodeURIComponent(signValue('authenticated'));
+    res.setHeader('Set-Cookie', `${AUTH_COOKIE_NAME}=${val}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_MAX_AGE}`);
+}
+function clearAuthCookie(res) {
+    res.setHeader('Set-Cookie', `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+const LOGIN_PAGE = (error = '') => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — radikikktok</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Outfit',sans-serif;background:radial-gradient(ellipse at 60% 20%,#1a0533 0%,#07090f 60%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff}
+    .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:24px;padding:48px 40px;width:100%;max-width:400px;backdrop-filter:blur(12px);box-shadow:0 25px 50px rgba(0,0,0,0.5)}
+    .logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,#f09433,#dc2743,#bc1888);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-align:center;margin-bottom:6px}
+    .sub{text-align:center;font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:32px;font-weight:500}
+    label{font-size:13px;font-weight:600;color:rgba(255,255,255,0.55);display:block;margin-bottom:8px;letter-spacing:0.04em;text-transform:uppercase}
+    input[type=password]{width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 16px;color:#fff;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s;margin-bottom:${error ? '0' : '20px'}}
+    input[type=password]:focus{border-color:rgba(220,39,67,0.5);box-shadow:0 0 0 3px rgba(220,39,67,0.1)}
+    .error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;font-size:13px;padding:10px 14px;border-radius:10px;margin:12px 0 20px;text-align:center}
+    button{width:100%;background:linear-gradient(135deg,#f09433,#dc2743,#bc1888);border:none;border-radius:12px;padding:14px;color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;transition:opacity 0.2s;box-shadow:0 4px 20px rgba(220,39,67,0.3)}
+    button:hover{opacity:0.88}
+    .footer{text-align:center;margin-top:24px;font-size:12px;color:rgba(255,255,255,0.2)}
+    .footer a{color:rgba(255,255,255,0.3);text-decoration:none;margin:0 8px}
+    .footer a:hover{color:rgba(255,255,255,0.5)}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">radikikktok</div>
+    <div class="sub">Auto DM for All</div>
+    <form method="POST" action="/login">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter your password" autofocus autocomplete="current-password">
+      ${error ? `<div class="error">⚠️ ${error}</div>` : ''}
+      <button type="submit">Sign In →</button>
+    </form>
+    <div class="footer">
+      <a href="/privacy-policy">Privacy</a>
+      <a href="/terms-of-service">Terms</a>
+      <a href="/data-deletion">Data Deletion</a>
+    </div>
+  </div>
+</body>
+</html>`;
+
+// GET /login
+app.get('/login', (req, res) => {
+    if (isAuthenticated(req)) return res.redirect('/');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(LOGIN_PAGE());
+});
+
+// POST /login
+app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
+    const submitted = (req.body.password || '').trim();
+    if (submitted === DASHBOARD_PASSWORD) {
+        setAuthCookie(res);
+        return res.redirect('/');
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(401).send(LOGIN_PAGE('Incorrect password. Please try again.'));
+});
+
+// GET /logout
+app.get('/logout', (req, res) => {
+    clearAuthCookie(res);
+    res.redirect('/login');
+});
+
+// requireAuth middleware — gates all non-public routes
+function requireAuth(req, res, next) {
+    // Allow public compliance pages, login/logout, and proxy routes
+    const p = req.path;
+    if (PUBLIC_PATHS.has(p)) return next();
+    // Proxy prefixes (/fb, /yt, /ig) are handled by their own middleware before this
+    if (isAuthenticated(req)) return next();
+    // API calls — return 401 JSON instead of redirect
+    if (p.startsWith('/api/') || p.startsWith('/socket.io/')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.redirect('/login');
+}
+
+app.use(requireAuth);
 
 // ── Legal & Compliance Pages ──────────────────────────────────────────────────
 // These are public, no-auth pages for Meta App Review submission.
