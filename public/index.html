@@ -349,12 +349,21 @@
             /* Instagram sub-tab bar scrollable */
             div[style*="overflow-x: auto"] { -webkit-overflow-scrolling: touch; }
 
-            /* Stat grids */
-            div[style*="grid-template-columns: repeat(3, 1fr)"] {
-                grid-template-columns: repeat(2, 1fr) !important;
-            }
-            div[style*="grid-template-columns: 1.2fr 1fr"] {
+            /* Stat grids and layout columns */
+            div[style*="grid-template-columns: repeat(3, 1fr)"],
+            div[style*="grid-template-columns:repeat(3,1fr)"] {
                 grid-template-columns: 1fr !important;
+            }
+            div[style*="grid-template-columns: 1.2fr 1fr"],
+            div[style*="grid-template-columns: 1fr 1.2fr"],
+            div[style*="grid-template-columns:1fr 1fr"],
+            div[style*="grid-template-columns: 1fr 1fr"],
+            div[style*="grid-template-columns: 1fr 1fr;"],
+            .igwz-scope-grid {
+                grid-template-columns: 1fr !important;
+            }
+            .posts-grid, .media-grid {
+                grid-template-columns: 1fr 1fr !important;
             }
 
             /* Buttons in header areas */

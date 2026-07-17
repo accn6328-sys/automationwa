@@ -6033,6 +6033,20 @@ HTML = """
     .platform-tab{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;color:#65676b;text-decoration:none;transition:all .2s}
     .platform-tab.active{background:#fff;color:#1877f2;box-shadow:0 1px 3px rgba(0,0,0,.08)}
     .platform-tab:hover:not(.active){color:#050505}
+
+    /* ── Mobile responsiveness overrides ── */
+    @media (max-width: 768px) {
+      .container { padding: 0 12px; margin: 14px auto; }
+      .stats { grid-template-columns: 1fr; gap: 10px; }
+      .auto-item { flex-direction: column; align-items: stretch; gap: 10px; }
+      .auto-actions { justify-content: flex-end; }
+      .option-grid { grid-template-columns: 1fr; }
+      .action-grid { grid-template-columns: 1fr; }
+      .posts-grid { grid-template-columns: 1fr 1fr; }
+      .modal-footer { flex-direction: column-reverse; }
+      .modal-footer button { width: 100%; }
+      header { padding: 10px 16px; }
+    }
   </style>
 </head>
 <body>
@@ -6719,6 +6733,20 @@ INSTAGRAM_HTML = """
     td{padding:12px 10px;font-size:13px;border-bottom:1px solid #f3f4f6}
     .tag{background:#fdf2f8;color:#db2777;border-radius:6px;padding:3px 8px;font-size:11px;font-family:monospace;font-weight:600}
     .section-label{font-size:11px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px}
+
+    /* ── Mobile responsiveness overrides ── */
+    @media(max-width:768px) {
+      .container { padding: 0 12px; margin: 14px auto; }
+      .auto-item { flex-direction: column; align-items: stretch; gap: 12px; }
+      .auto-actions { justify-content: flex-end; }
+      .option-grid { grid-template-columns: 1fr; }
+      .posts-grid { grid-template-columns: 1fr 1fr; }
+      .modal-footer { flex-direction: column-reverse; gap: 8px; }
+      .modal-footer button, .modal-footer .btn-outline { width: 100%; text-align: center; }
+      .picker-card { flex-direction: column; align-items: flex-start; text-align: left; }
+      header { padding: 10px 16px; }
+      .logo { font-size: 16px; }
+    }
   </style>
 </head>
 <body>
@@ -9005,6 +9033,15 @@ def ig_public_bio_page(username):
                 text-decoration: none;
                 font-weight: 600;
             }
+
+            @media (max-width: 480px) {
+                .media-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                body {
+                    padding: 24px 12px;
+                }
+            }
         </style>
     </head>
     <body>
@@ -10064,6 +10101,15 @@ REVIEW_DEMO_HTML = """
     .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase}
     .badge-success{background:#dcfce7;color:#15803d}
     .badge-info{background:#e0f2fe;color:#0369a1}
+
+    @media (max-width: 480px) {
+      .container { padding: 0 12px; margin: 14px auto; }
+      header { padding: 10px 14px; }
+      .logo { font-size: 16px; }
+      .card { padding: 20px 16px; }
+      .btn { width: 100%; display: flex; }
+      .media-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
