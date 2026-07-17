@@ -852,17 +852,19 @@ def _save_replied_to_file():
     except Exception as e:
         print(f"[Replied] Save error (non-critical): {e}")
 
-def already_replied(comment_id):
-    return comment_id in _replied_set
+_fb_replied_lock = threading.Lock()
 
-def mark_replied(comment_id):
-    _replied_set.add(comment_id)
-    if len(_replied_set) > MAX_REPLIED_STORE:
-        # trim oldest — convert to list, keep last N
-        trimmed = list(_replied_set)[-MAX_REPLIED_STORE:]
-        _replied_set.clear()
-        _replied_set.update(trimmed)
-    _save_replied_to_file()
+def fb_check_and_mark_replied(comment_id):
+    with _fb_replied_lock:
+        if comment_id in _replied_set:
+            return True
+        _replied_set.add(comment_id)
+        if len(_replied_set) > MAX_REPLIED_STORE:
+            trimmed = list(_replied_set)[-MAX_REPLIED_STORE:]
+            _replied_set.clear()
+            _replied_set.update(trimmed)
+        _save_replied_to_file()
+        return False
 
 
 def fetch_page_posts(force=False):
@@ -1041,7 +1043,7 @@ def handle_comment(value):
     # Use user_id+post_id+text as dedup key because Facebook sends same
     # comment with different comment_ids in multiple webhook events
     dedup_key = f"{user_id}:{post_id}:{comment_text}"
-    if already_replied(dedup_key):
+    if fb_check_and_mark_replied(dedup_key):
         print(f"[SKIP] Already replied to this comment (dedup_key={dedup_key})")
         return
 
@@ -1075,7 +1077,6 @@ def handle_comment(value):
             if action in ("dm", "both") and auto.get("dm_message"):
                 send_private_reply(comment_id, auto["dm_message"])
 
-            mark_replied(dedup_key)   # ← prevent future duplicates
             break
     print("  ---")
 
@@ -1539,26 +1540,20 @@ def _load_ig_replied_from_file():
 def _save_ig_replied_to_file():
     pass
 
-def ig_already_replied(key):
-    conn = get_db_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM ig_replied WHERE comment_id = ?", (key,))
-        return cursor.fetchone() is not None
-    except Exception:
-        return False
-    finally:
-        conn.close()
-
-def ig_mark_replied(key):
+def ig_check_and_mark_replied(key):
     with db_lock:
         conn = get_db_conn()
         try:
             cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM ig_replied WHERE comment_id = ?", (key,))
+            if cursor.fetchone() is not None:
+                return True
             cursor.execute("INSERT OR REPLACE INTO ig_replied (comment_id, timestamp) VALUES (?, ?)", (key, time.time()))
             conn.commit()
+            return False
         except Exception as e:
-            print(f"Error marking replied: {e}")
+            print(f"Error checking/marking replied: {e}")
+            return False
         finally:
             conn.close()
 
@@ -5489,15 +5484,14 @@ def handle_ig_comment(value, trigger_type="comment", access_token=None, ig_user_
     save_last_tester(user_id, username)
     record_user_interaction(user_id)
 
-    dedup_key = f"ig:{trigger_type}:{user_id}:{media_id}:{text}"
-    if ig_already_replied(dedup_key):
+    dedup_key = f"ig:{trigger_type}:{comment_id}"
+    if ig_check_and_mark_replied(dedup_key):
         print(f"[SKIP] Already handled (dedup_key={dedup_key})", flush=True)
         return
 
     if run_ig_automations(trigger_type, text, media_id, comment_id, user_id, username, access_token=access_token, ig_user_id=ig_user_id, owner_id=owner_id):
         if trigger_type == "live":
             bump_ig_stat("live_replies", owner_id=owner_id)
-        ig_mark_replied(dedup_key)
     print("  ---", flush=True)
 
 
@@ -5834,22 +5828,20 @@ def handle_ig_messaging(event, access_token=None, ig_user_id=None, owner_id=None
     if is_story_mention and not is_echo:
         print(f"[IG STORY MENTION] from={sender_id}", flush=True)
         dedup_key = f"ig:story_mention:{sender_id}:{message.get('mid')}"
-        if ig_already_replied(dedup_key):
+        if ig_check_and_mark_replied(dedup_key):
             return
         if run_ig_automations("story_mention", text, user_id=sender_id):
             bump_ig_stat("story_replies")
-            ig_mark_replied(dedup_key)
         return
 
     if reply_to.get("story") and not is_echo:
         story_id = reply_to.get("story", {}).get("id", "")
         print(f"[IG STORY REPLY] from={sender_id} story_id={story_id} text={text}", flush=True)
         dedup_key = f"ig:story:{sender_id}:{story_id}:{text}"
-        if ig_already_replied(dedup_key):
+        if ig_check_and_mark_replied(dedup_key):
             return
         if run_ig_automations("story", text, media_id=story_id, user_id=sender_id):
             bump_ig_stat("story_replies")
-            ig_mark_replied(dedup_key)
         return
 
     if text:
@@ -5980,17 +5972,15 @@ def handle_ig_messaging(event, access_token=None, ig_user_id=None, owner_id=None
                     return
             
             dedup_key = f"ig:dm:{sender_id}:{text}"
-            if ig_already_replied(dedup_key):
+            if ig_check_and_mark_replied(dedup_key):
                 return
             if run_ig_automations("dm", text, user_id=sender_id):
                 bump_ig_stat("dm_triggers")
-                ig_mark_replied(dedup_key)
                 return
             for kw, reply in load_ig_keywords().items():
                 if kw.lower() in text:
                     send_ig_dm(sender_id, reply)
                     bump_ig_stat("dm_triggers")
-                    ig_mark_replied(dedup_key)
                     return
 
 
@@ -6020,13 +6010,12 @@ def handle_ig_mention(value, access_token=None, ig_user_id=None, owner_id=None):
     record_user_interaction(user_id)
 
     dedup_key = f"ig:mention:{user_id}:{media_id}"
-    if ig_already_replied(dedup_key):
+    if ig_check_and_mark_replied(dedup_key):
         print(f"[SKIP] Already handled mention (dedup_key={dedup_key})", flush=True)
         return
 
     if run_ig_automations("mention", text, media_id=media_id, user_id=user_id, username=username):
         bump_ig_stat("mentions_handled")
-        ig_mark_replied(dedup_key)
     print("  ---", flush=True)
 
 
