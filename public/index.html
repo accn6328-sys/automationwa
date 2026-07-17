@@ -1571,6 +1571,7 @@ function formatNumberWithK(num) {
 let ytIframeLoaded = false;
 let fbIframeLoaded = false;
 function switchTab(tab) {
+    localStorage.setItem('active_tab', tab);
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + tab).classList.add('active');
@@ -2365,12 +2366,12 @@ let igwzData = {
   emailCapture: false,
   emailPrompt: '',
   linkUrl: '',
-  delaySeconds: 30
+  delaySeconds: 60
 };
 
 function openCreateIgRuleModal() {
   editingIgRuleIdx = null;
-  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', publicReplyTexts:[], askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:30 };
+  igwzData = { type:null, name:'', trigger:'all', keywords:[], scope:'all', dmMessage:'', publicReply:'', publicReplyTexts:[], askFollow:false, followPrompt:'', emailCapture:false, emailPrompt:'', linkUrl:'', delaySeconds:60 };
   igwzGoToStep(1);
   igwzReset();
   document.getElementById('ig-rule-modal').classList.add('open');
@@ -2562,8 +2563,8 @@ function igwzReset() {
   document.getElementById('sp-dm-type').value = 'text_button';
   toggleSpDMTypeFields();
   
-  document.getElementById('sp-delay-val').value = '30';
-  document.getElementById('sp-delay-unit').value = 'seconds';
+  document.getElementById('sp-delay-val').value = '1';
+  document.getElementById('sp-delay-unit').value = 'minutes';
   spUpdateDelaySeconds();
   spUpdateDMCharCounter();
   spWizardButtons = [
@@ -3740,6 +3741,10 @@ document.addEventListener('DOMContentLoaded', () => {
     checkIgStatus();
     loadIgSettingsFront();
     loadBioPageSettings();
+
+    // Restore active tab
+    const activeTab = localStorage.getItem('active_tab') || 'wa';
+    switchTab(activeTab);
 });
 </script>
 
