@@ -6311,6 +6311,16 @@ function renderFbRules() {
     });
   }
 
+  // 1b. Sort by created_time DESC (latest video upload first, rules without created_time go last)
+  filtered = [...filtered].sort((a, b) => {
+    const aTime = a.created_time || '';
+    const bTime = b.created_time || '';
+    if (!aTime && !bTime) return 0;
+    if (!aTime) return 1;   // a has no time → push to end
+    if (!bTime) return -1;  // b has no time → push to end
+    return bTime.localeCompare(aTime); // DESC: latest first
+  });
+
   if (filtered.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
