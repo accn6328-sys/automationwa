@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template_string
 import time
+import random
 import requests
 import os
 import json
@@ -10,6 +11,42 @@ import hashlib
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Default DM comment reply variations (randomised per trigger) ──────────────
+# A random one is picked as the public comment reply when no custom reply is set.
+# Mimics natural human behaviour — each commenter gets a different response.
+IG_DM_COMMENT_VARIATIONS = [
+    "Just sent the link to your DMs! Let me know if you got it.",
+    "Check your messages! I just slid the link right into your inbox.",
+    "Sent! You can find the link waiting for you in your messages.",
+    "I just DM\u2019ed you the full details and the link!",
+    "Check your inbox! The link has been sent your way.",
+    "Just dropped the link in your messages. Enjoy!",
+    "The link is officially in your DMs. Check it out!",
+    "Sent you a direct message with the link! Let me know what you think.",
+    "Check your requests! The link is sitting in your inbox right now.",
+    "All set! I just sent the link over via DM.",
+    "Inboxed you the link! \U0001f44d",
+    "Sent to your DMs! Check it out.",
+    "Link is in your messages!",
+    "Just sent it over! Check your DMs.",
+    "Sent! Check your inbox.",
+    "DM sent! The link is right there.",
+    "Check your messages! Sent it.",
+    "Link dropped in your DMs. \U0001f64c",
+    "Just DM\u2019ed you!",
+    "Check your inbox\u2014sent you the info!",
+    "Awesome to connect! I just sent the resource link to your DMs.",
+    "So glad you\u2019re interested! Check your DMs for the link.",
+    "The link is on its way to your inbox! Can\u2019t wait to hear your thoughts.",
+    "Just sent you the access link via message. Enjoy the content!",
+    "Check your DMs! Everything you need is right there in your inbox.",
+    "Sent it over! Let me know if that link helps you out.",
+    "You\u2019re all set! I just sent the private link to your messages.",
+    "Check your direct messages. The link is officially delivered!",
+    "Excited for you to check this out! Sent the link to your inbox.",
+    "Just popped into your DMs with the link! Let me know if you need anything else.",
+]
 
 app = Flask(__name__)
 
@@ -4978,18 +5015,22 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
         run_id = f"{auto.get('id')}:{user_id}:{int(time.time()*1000)}"
 
         if action in ("comment", "both") and comment_id:
-            # Pick one reply variation at random (fall back to legacy single reply)
+            # Pick one reply variation at random.
+            # Falls back to IG_DM_COMMENT_VARIATIONS if no custom reply is set.
             reply_texts = [t for t in (auto.get("reply_texts") or []) if t and t.strip()]
             if not reply_texts and auto.get("reply"):
                 reply_texts = [auto["reply"]]
+            # Default: use the built-in DM-notification variations
+            if not reply_texts:
+                reply_texts = IG_DM_COMMENT_VARIATIONS
             if reply_texts:
                 chosen_reply = personalize_ig_message(random.choice(reply_texts), username)
                 auto_name_snap = auto.get("name", "")
-                # Fire after a 10s delay in a background thread
+                # Fire after a random 10–200s human-behaviour delay in a background thread
                 def _delayed_comment_reply(cid=comment_id, msg=chosen_reply, aname=auto_name_snap):
                     try:
-                        delay_secs = 10
-                        print(f"  [IG Comment Reply] Waiting {delay_secs}s before replying (anti-spam)", flush=True)
+                        delay_secs = random.randint(10, 200)
+                        print(f"  [IG Comment Reply] Waiting {delay_secs}s before replying (human behaviour)", flush=True)
                         time.sleep(delay_secs)
                         reply_to_ig_comment(cid, msg)
                         increment_ig_automation_counter(aname, "replies_sent")
@@ -4997,7 +5038,9 @@ def run_ig_automations(trigger_type, text, media_id="", comment_id="", user_id="
                         print(f"  [IG Comment Reply error] {_e}", flush=True)
                 threading.Thread(target=_delayed_comment_reply, daemon=True).start()
 
-        send_ig_automation_dm(auto, user_id, username, comment_id, delay, run_id=run_id)
+        # Human-behaviour random DM delay (10–200s) — each interaction gets its own delay
+        dm_delay = random.randint(10, 200)
+        send_ig_automation_dm(auto, user_id, username, comment_id, dm_delay, run_id=run_id)
         return True
     return False
 
