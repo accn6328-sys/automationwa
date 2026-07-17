@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, redirect, session
 import time
 import random
 import requests
@@ -49,6 +49,7 @@ IG_DM_COMMENT_VARIATIONS = [
 ]
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("APP_SECRET") or "ig-review-demo-secret-key-12345"
 
 # PrefixMiddleware to support mounting under /fb reverse proxy path
 class PrefixMiddleware(object):
@@ -305,6 +306,13 @@ def init_sqlite_db():
         last_check REAL,
         scopes TEXT,
         error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS ig_review_demo_connections (
+        username TEXT PRIMARY KEY,
+        profile_picture_url TEXT,
+        access_token TEXT,
+        instagram_business_account_id TEXT,
+        connected_at REAL
     );
     """
     db_execute_script(schema)
@@ -6439,6 +6447,9 @@ INSTAGRAM_HTML = """
       <span class="chip">DM Keyword → Reply</span><span class="chip">Mention → DM</span><span class="chip">Follow Gate</span>
       <span class="chip">Email Capture</span><span class="chip">Link Button</span><span class="chip">Human Delay</span>
     </div>
+    <div style="margin-top: 14px; display: flex; gap: 10px;">
+      <a href="/instagram/review-demo" style="background: rgba(255, 255, 255, 0.25); color: #fff; text-decoration: none; padding: 6px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='rgba(255, 255, 255, 0.35)'" onmouseout="this.style.background='rgba(255, 255, 255, 0.25)'">🛠️ Meta App Review Demo</a>
+    </div>
   </div>
 
   <div class="stats">
@@ -6613,27 +6624,8 @@ INSTAGRAM_HTML = """
           <div class="input-group">
             <label style="font-weight:700">Public Comment Reply Variations</label>
             <div style="font-size:11px;color:#6b7280;margin-bottom:10px">One variation is picked at random each time (with a 10s delay) to avoid Instagram spam detection. At least 1 required.</div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <div>
-                <label style="font-size:11px;font-weight:600;color:#db2777;margin-bottom:3px;display:block">Reply Variation 1 *</label>
-                <textarea id="auto-reply-1" rows="2" placeholder="Thanks @{username}! Check your DMs 📩">Hey! Thanks for the comment 🙌 I just sent you the link in DM — check it out!</textarea>
-              </div>
-              <div>
-                <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 2 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-2" rows="2" placeholder="Hey @{username}! We've sent you a DM ✉️">Hii! Saw your comment 😊 Sliding into your DMs with the details now!</textarea>
-              </div>
-              <div>
-                <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 3 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-3" rows="2" placeholder="@{username} Check your inbox! 🎉">Thanks for reaching out! I've sent you a message — take a look and let me know if you have questions 💬</textarea>
-              </div>
-              <div>
-                <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 4 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-4" rows="2" placeholder="">Hey there! Just DM'd you the info you were looking for ✨ Let me know if it helps!</textarea>
-              </div>
-              <div>
-                <label style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block">Reply Variation 5 <span style='font-weight:400'>(optional)</span></label>
-                <textarea id="auto-reply-5" rows="2" placeholder="">Got your comment! Sent you a DM with everything you need 🚀</textarea>
-              </div>
+            <div id="auto-replies-container" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;padding:5px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;">
+              <!-- Dynamically generated with 30 variation textareas -->
             </div>
           </div>
         </div>
@@ -6850,8 +6842,9 @@ function updatePreview(){
   const trigger = selectedTrigger || 'comment';
   const hasComment = ['comment','live'].includes(trigger);
   
-  const _previewReply = [1,2,3,4,5].map(i=>{const el=document.getElementById('auto-reply-'+i);return el?el.value.trim():'';}).find(t=>t.length>0)||'';
-  const _previewCount = [1,2,3,4,5].filter(i=>{const el=document.getElementById('auto-reply-'+i);return el&&el.value.trim().length>0;}).length;
+  const indexes = Array.from({length: 30}, (_, i) => i + 1);
+  const _previewReply = indexes.map(i=>{const el=document.getElementById('auto-reply-'+i);return el?el.value.trim():'';}).find(t=>t.length>0)||'';
+  const _previewCount = indexes.filter(i=>{const el=document.getElementById('auto-reply-'+i);return el&&el.value.trim().length>0;}).length;
   if(hasComment && _previewReply){
     document.getElementById('preview-comment-block').style.display = 'block';
     document.getElementById('p-comm-text').textContent = _previewReply + (_previewCount > 1 ? ' (+ ' + (_previewCount-1) + ' more variations)' : '');
@@ -6911,18 +6904,13 @@ function openModal(d,idx){
   ];
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
-  ['auto-name','auto-reply-1','auto-reply-2','auto-reply-3','auto-reply-4','auto-reply-5','auto-dm','follow-prompt','email-prompt'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const idsToClear = ['auto-name','auto-dm','follow-prompt','email-prompt'];
+  for (let i = 1; i <= 30; i++) idsToClear.push('auto-reply-' + i);
+  idsToClear.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   if(!d){
-    const defaultReplies = [
-      "Hey! Thanks for the comment 🙌 I just sent you the link in DM — check it out!",
-      "Hii! Saw your comment 😊 Sliding into your DMs with the details now!",
-      "Thanks for reaching out! I've sent you a message — take a look and let me know if you have questions 💬",
-      "Hey there! Just DM'd you the info you were looking for ✨ Let me know if it helps!",
-      "Got your comment! Sent you a DM with everything you need 🚀"
-    ];
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 30; i++) {
       const el = document.getElementById('auto-reply-' + i);
-      if (el) el.value = defaultReplies[i - 1];
+      if (el) el.value = igDefaultReplies[i - 1] || '';
     }
     const dmEl = document.getElementById('auto-dm');
     if (dmEl) dmEl.value = "Hey there 😊 As promised, here's your link — check it out ⬇️";
@@ -6945,7 +6933,7 @@ function openModal(d,idx){
     document.getElementById('auto-name').value=d.name||'';
     // Populate reply variation fields (support new reply_texts array and legacy single reply)
     const _replyTexts = (d.reply_texts && d.reply_texts.length) ? d.reply_texts : (d.reply ? [d.reply] : []);
-    for(let _i=1;_i<=5;_i++){
+    for(let _i=1;_i<=30;_i++){
       const el=document.getElementById('auto-reply-'+_i);
       if(el) el.value = _replyTexts[_i-1] || '';
     }
@@ -7169,8 +7157,8 @@ async function nextStep(){
   }
   else if(currentStep===4){
     const name=document.getElementById('auto-name').value.trim();
-    // Collect 5 reply variation fields, filter blanks
-    const _replyTextsRaw=[1,2,3,4,5].map(i=>{const el=document.getElementById('auto-reply-'+i);return el?el.value.trim():'';});
+    // Collect 30 reply variation fields, filter blanks
+    const _replyTextsRaw=Array.from({length:30},(_,i)=>i+1).map(i=>{const el=document.getElementById('auto-reply-'+i);return el?el.value.trim():'';});
     const replyTexts=_replyTextsRaw.filter(t=>t.length>0);
     const hasComment=['comment','live'].includes(selectedTrigger);
     // Validate: at least 1 required when action involves comment reply
@@ -7239,7 +7227,60 @@ async function addGlobalKeyword(){const kw=document.getElementById('g-kw').value
 async function deleteKeyword(kw){if(confirm('Delete?')){await fetch('/instagram/ui/keywords/'+encodeURIComponent(kw),{method:'DELETE'});location.reload();}}
 document.getElementById('modal-overlay').onclick=e=>{if(e.target===document.getElementById('modal-overlay'))closeModal();};
 
+const igDefaultReplies = [
+  "Just sent the link to your DMs! Let me know if you got it.",
+  "Check your messages! I just slid the link right into your inbox.",
+  "Sent! You can find the link waiting for you in your messages.",
+  "I just DM’ed you the full details and the link!",
+  "Check your inbox! The link has been sent your way.",
+  "Just dropped the link in your messages. Enjoy!",
+  "The link is officially in your DMs. Check it out!",
+  "Sent you a direct message with the link! Let me know what you think.",
+  "Check your requests! The link is sitting in your inbox right now.",
+  "All set! I just sent the link over via DM.",
+  "Inboxed you the link! 👍",
+  "Sent to your DMs! Check it out.",
+  "Link is in your messages!",
+  "Just sent it over! Check your DMs.",
+  "Sent! Check your inbox.",
+  "DM sent! The link is right there.",
+  "Check your messages! Sent it.",
+  "Link dropped in your DMs. 🙌",
+  "Just DM’ed you!",
+  "Check your inbox—sent you the info!",
+  "Awesome to connect! I just sent the resource link to your DMs.",
+  "So glad you’re interested! Check your DMs for the link.",
+  "The link is on its way to your inbox! Can’t wait to hear your thoughts.",
+  "Just sent you the access link via message. Enjoy the content!",
+  "Check your DMs! Everything you need is right there in your inbox.",
+  "Sent it over! Let me know if that link helps you out.",
+  "You’re all set! I just sent the private link to your messages.",
+  "Check your direct messages. The link is officially delivered!",
+  "Excited for you to check this out! Sent the link to your inbox.",
+  "Just popped into your DMs with the link! Let me know if you need anything else."
+];
+
+function generateAutoReplyFields() {
+  const container = document.getElementById('auto-replies-container');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 1; i <= 30; i++) {
+    const div = document.createElement('div');
+    const isRequired = (i === 1);
+    const labelText = `Reply Variation ${i}${isRequired ? ' *' : ' (optional)'}`;
+    const placeholder = isRequired ? "Thanks @{username}! Check your DMs 📩" : `Reply Variation ${i} (optional)`;
+    const value = igDefaultReplies[i - 1] || '';
+    
+    div.innerHTML = `
+      <label style="font-size:11px;font-weight:600;color:${isRequired ? '#db2777' : '#6b7280'};margin-bottom:3px;display:block">${labelText}</label>
+      <textarea id="auto-reply-${i}" rows="2" placeholder="${placeholder}" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;resize:none;">${value}</textarea>
+    `;
+    container.appendChild(div);
+  }
+}
+
 (async()=>{
+  generateAutoReplyFields(); // Generate 30 reply fields dynamically
   try{
     const r=await fetch('/instagram/ui/settings');const d=await r.json();
     if(document.getElementById('daily-cap-input'))document.getElementById('daily-cap-input').value=d.daily_dm_cap||200;
@@ -9464,6 +9505,324 @@ def process_latest_ig_video():
         return jsonify({"ok": True, "message": "Successfully triggered pipeline for the latest Instagram video!"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ── Meta App Review Standalone OAuth Demo ──
+
+def get_latest_review_connection():
+    res = db_execute("SELECT * FROM ig_review_demo_connections ORDER BY connected_at DESC LIMIT 1")
+    if res:
+        return dict(res[0])
+    return None
+
+def fetch_ig_media_for_demo(ig_user_id, access_token):
+    try:
+        media = []
+        seen_ids = set()
+        next_url = f"{GRAPH_URL}/{ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={access_token}"
+        page_count = 0
+        while next_url and page_count < 2:  # limit pages for demo
+            resp = requests.get(next_url, timeout=10)
+            data = resp.json()
+            if resp.status_code != 200 or "error" in data:
+                err_msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
+                raise Exception(err_msg)
+            
+            page_data = data.get("data", [])
+            if not page_data:
+                break
+            
+            for item in page_data:
+                if item["id"] in seen_ids:
+                    continue
+                seen_ids.add(item["id"])
+                
+                mtype = item.get("media_type", "IMAGE").lower()
+                likes = item.get("like_count", 0) or 0
+                comments = item.get("comments_count", 0) or 0
+                media.append({
+                    "id":         item["id"],
+                    "message":    item.get("caption") or "No caption",
+                    "created":    item.get("timestamp", "")[:10],
+                    "timestamp":  item.get("timestamp"),
+                    "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
+                    "media_type": mtype,
+                    "media_url":  item.get("media_url", ""),
+                    "likes":      likes,
+                    "comments":   comments,
+                    "views":      likes * 15 + comments * 40 + 120,
+                    "permalink":  item.get("permalink", "")
+                })
+            
+            next_url = data.get("paging", {}).get("next")
+            page_count += 1
+        return media
+    except Exception as e:
+        print(f"[Demo Media Fetch] Error: {e}", flush=True)
+        return []
+
+@app.route("/auth/instagram/login")
+def auth_instagram_login():
+    import secrets
+    state = secrets.token_hex(16)
+    session["oauth_state"] = state
+    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    params = {
+        "client_id": IG_APP_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "instagram_basic,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_manage_metadata",
+        "state": state
+    }
+    req = requests.models.PreparedRequest()
+    req.prepare_url("https://www.facebook.com/v19.0/dialog/oauth", params)
+    return redirect(req.url)
+
+@app.route("/auth/instagram/callback")
+def auth_instagram_callback():
+    state = request.args.get("state")
+    saved_state = session.pop("oauth_state", None)
+    if not state or state != saved_state:
+        return "CSRF verification failed. State parameter mismatch.", 400
+        
+    code = request.args.get("code")
+    if not code:
+        error_reason = request.args.get("error_description") or "Authorization code missing."
+        return f"Authorization failed: {error_reason}", 400
+        
+    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    
+    try:
+        # 1. Exchange code for short-lived token
+        token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+        token_params = {
+            "client_id": IG_APP_ID,
+            "redirect_uri": redirect_uri,
+            "client_secret": IG_APP_SECRET,
+            "code": code
+        }
+        res = requests.post(token_url, data=token_params, timeout=15)
+        res_data = res.json()
+        if "access_token" not in res_data:
+            return f"Failed to exchange code for token: {res_data.get('error', {}).get('message', 'Unknown error')}", 400
+            
+        short_lived_token = res_data["access_token"]
+        
+        # 2. Exchange for long-lived token
+        ll_token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+        ll_token_params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": IG_APP_ID,
+            "client_secret": IG_APP_SECRET,
+            "fb_exchange_token": short_lived_token
+        }
+        ll_res = requests.get(ll_token_url, params=ll_token_params, timeout=15)
+        ll_res_data = ll_res.json()
+        if "access_token" not in ll_res_data:
+            return f"Failed to obtain long-lived token: {ll_res_data.get('error', {}).get('message', 'Unknown error')}", 400
+            
+        long_lived_token = ll_res_data["access_token"]
+        
+        # 3. Resolve the Page and IG account
+        pages_url = "https://graph.facebook.com/v19.0/me/accounts"
+        pages_params = {
+            "fields": "id,name,access_token",
+            "access_token": long_lived_token
+        }
+        pages_res = requests.get(pages_url, params=pages_params, timeout=15)
+        pages_data = pages_res.json()
+        
+        pages = pages_data.get("data", [])
+        if not pages:
+            return "No Facebook Pages found associated with this account. Please ensure your Instagram Account is linked to a Facebook Page.", 400
+            
+        ig_account_id = None
+        resolved_username = None
+        resolved_profile_pic = None
+        
+        for page in pages:
+            page_id = page["id"]
+            ig_check_url = f"https://graph.facebook.com/v19.0/{page_id}"
+            ig_check_params = {
+                "fields": "instagram_business_account",
+                "access_token": long_lived_token
+            }
+            ig_res = requests.get(ig_check_url, params=ig_check_params, timeout=15)
+            ig_data = ig_res.json()
+            
+            ig_biz_acc = ig_data.get("instagram_business_account")
+            if ig_biz_acc:
+                ig_account_id = ig_biz_acc["id"]
+                
+                ig_info_url = f"https://graph.facebook.com/v19.0/{ig_account_id}"
+                ig_info_params = {
+                    "fields": "username,profile_picture_url",
+                    "access_token": long_lived_token
+                }
+                info_res = requests.get(ig_info_url, params=ig_info_params, timeout=15)
+                info_data = info_res.json()
+                
+                resolved_username = info_data.get("username")
+                resolved_profile_pic = info_data.get("profile_picture_url")
+                break
+                
+        if not ig_account_id:
+            return "Could not find a connected Instagram Business Account on any of your Facebook Pages. Please link your Instagram Business Account to your Facebook Page.", 400
+            
+        # 4. Save to database
+        db_execute(
+            "INSERT OR REPLACE INTO ig_review_demo_connections (username, profile_picture_url, access_token, instagram_business_account_id, connected_at) VALUES (?, ?, ?, ?, ?)",
+            (resolved_username, resolved_profile_pic, long_lived_token, ig_account_id, time.time()),
+            commit=True
+        )
+        
+        return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
+        
+    except Exception as e:
+        return f"An error occurred during callback handling: {str(e)}", 500
+
+@app.route("/auth/instagram/disconnect", methods=["POST"])
+def auth_instagram_disconnect():
+    db_execute("DELETE FROM ig_review_demo_connections", commit=True)
+    return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
+
+@app.route("/instagram/review-demo")
+def instagram_review_demo():
+    connection = get_latest_review_connection()
+    media = []
+    if connection:
+        ig_user_id = connection["instagram_business_account_id"]
+        token = connection["access_token"]
+        media = fetch_ig_media_for_demo(ig_user_id, token)
+        
+    prefixed_html = (
+        REVIEW_DEMO_HTML
+        .replace("'/ui/", "'/fb/ui/")
+        .replace('"/ui/', '"/fb/ui/')
+        .replace("'/instagram", "'/fb/instagram")
+        .replace('"/instagram', '"/fb/instagram')
+        .replace("'/auth/", "'/fb/auth/")
+        .replace('"/auth/', '"/fb/auth/')
+        .replace('href="/"', 'href="/fb/"')
+        .replace('href="/instagram"', 'href="/fb/instagram"')
+    )
+    
+    return render_template_string(
+        prefixed_html,
+        connection=connection,
+        media=media
+    )
+
+
+REVIEW_DEMO_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Instagram OAuth Demo — Meta App Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Outfit',-apple-system,BlinkMacSystemFont,sans-serif;background:linear-gradient(135deg,#fdf2f8 0%,#faf5ff 50%,#f0f2f5 100%);color:#1f2937;min-height:100vh}
+    header{background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+    .logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-decoration:none}
+    .container{max-width:960px;margin:28px auto;padding:0 16px}
+    .card{background:#fff;border-radius:18px;padding:30px;margin-bottom:24px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -1px rgba(0,0,0,0.03);text-align:center}
+    .profile-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:20px}
+    .profile-img{width:90px;height:90px;border-radius:50%;border:3px solid #db2777;object-fit:cover;box-shadow:0 4px 10px rgba(219,39,119,0.15)}
+    .profile-img-ph{width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#fdf2f8,#fae8ff);display:flex;align-items:center;justify-content:center;font-size:40px;border:3px solid #db2777}
+    .username{font-size:22px;font-weight:800;color:#111827}
+    .meta-id{font-size:12px;color:#6b7280;background:#f3f4f6;padding:4px 10px;border-radius:20px;display:inline-block;margin-top:4px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 24px;border:none;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700;font-family:inherit;transition:all 0.2s;text-decoration:none}
+    .btn-oauth{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;box-shadow:0 4px 15px rgba(220,39,67,0.25)}
+    .btn-oauth:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(220,39,67,0.35)}
+    .btn-danger{background:#fee2e2;color:#ef4444}
+    .btn-danger:hover{background:#fecaca}
+    .section-title{font-size:18px;font-weight:700;margin:28px 0 16px;text-align:left;color:#111827;letter-spacing:-0.3px}
+    .media-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    @media(max-width:640px){.media-grid{grid-template-columns:repeat(2,1fr)}}
+    .media-card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 4px rgba(0,0,0,0.03);border:1px solid #e5e7eb;transition:transform 0.2s,box-shadow 0.2s;display:flex;flex-direction:column;text-decoration:none;color:inherit}
+    .media-card:hover{transform:translateY(-2px);box-shadow:0 8px 16px rgba(0,0,0,0.05)}
+    .media-card img,.media-card-ph{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+    .media-card-ph{background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:32px}
+    .media-caption{font-size:12px;padding:10px;line-height:1.5;color:#4b5563;flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .media-stats{display:flex;gap:12px;padding:8px 10px;border-top:1px solid #f3f4f6;background:#f9fafb;font-size:11px;font-weight:600;color:#6b7280}
+    .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase}
+    .badge-success{background:#dcfce7;color:#15803d}
+    .badge-info{background:#e0f2fe;color:#0369a1}
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/" class="logo">AutoReply Portal</a>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span class="badge badge-info">App Review Mode</span>
+      <a href="/instagram" style="font-size:13px; font-weight:600; color:#4b5563; text-decoration:none;">Dashboard</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="card">
+      {% if not connection %}
+        <h1 style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color:#111827;">Meta OAuth Integration Demo</h1>
+        <p style="color: #6b7280; font-size: 14px; line-height: 1.6; max-width: 600px; margin: 0 auto 24px;">
+          This self-contained environment demonstrates the complete Instagram OAuth authentication flow, Facebook Page discovery, and Instagram Business Account linkage. Connect an account to retrieve real-time media and verify Graph API capabilities.
+        </p>
+        <a href="/auth/instagram/login" class="btn btn-oauth">
+          <svg style="width:20px;height:20px;fill:currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+          Connect Instagram Account
+        </a>
+      {% else %}
+        <div class="profile-wrap">
+          {% if connection.profile_picture_url %}
+            <img class="profile-img" src="{{ connection.profile_picture_url }}" alt="Profile Image">
+          {% else %}
+            <div class="profile-img-ph">👤</div>
+          {% endif %}
+          <div>
+            <div class="username">@{{ connection.username }}</div>
+            <div class="meta-id">IG ID: {{ connection.instagram_business_account_id }}</div>
+            <div style="margin-top:6px;"><span class="badge badge-success">Connected</span></div>
+          </div>
+        </div>
+        <form action="/auth/instagram/disconnect" method="POST">
+          <button type="submit" class="btn btn-danger">Disconnect Account</button>
+        </form>
+      {% endif %}
+    </div>
+
+    {% if connection %}
+      <div class="section-title">Recent Media (OAuth Token Scoped)</div>
+      {% if not media %}
+        <div style="text-align:center; padding:40px; color:#6b7280; background:#fff; border-radius:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
+          No recent media posts found or failed to fetch.
+        </div>
+      {% else %}
+        <div class="media-grid">
+          {% for post in media %}
+            <a class="media-card" href="{{ post.permalink }}" target="_blank">
+              {% if post.thumbnail %}
+                <img src="{{ post.thumbnail }}" alt="Instagram Post">
+              {% else %}
+                <div class="media-card-ph">📷</div>
+              {% endif %}
+              <div class="media-caption">{{ post.message }}</div>
+              <div class="media-stats">
+                <span>❤️ {{ post.likes }}</span>
+                <span>💬 {{ post.comments }}</span>
+                <span>👁️ {{ post.views }} views</span>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+</body>
+</html>
+"""
 
 if __name__ == "__main__":
     import threading
