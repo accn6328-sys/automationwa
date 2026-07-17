@@ -6108,10 +6108,11 @@ HTML = """
   <div class="card">
     <div class="card-header">
       <h2>Comment Automations</h2>
-      <div style="display:flex; align-items:center; gap:8px;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <span style="font-size:13px; color:#65676b;">Clear latest:</span>
         <input type="number" id="clear-latest-count" value="5" min="1" style="width: 50px; border: 1px solid #ccd0d5; border-radius: 6px; padding: 4px 6px; text-align: center; font-size: 13px;">
         <button class="btn btn-danger" onclick="clearLatestAutomations()" style="padding: 5px 10px; font-size: 12px; background:#ff4d4f; color:#fff; border:none; border-radius:6px; cursor:pointer;">Clear Rules</button>
+        <button class="btn" onclick="removeFbDuplicates()" style="padding: 5px 10px; font-size: 12px; background:#f59e0b; color:#fff; border:none; border-radius:6px; cursor:pointer;">🧹 Remove Duplicates</button>
       </div>
     </div>
     <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border: 1px solid #ccd0d5; border-radius: 8px; padding: 6px 12px; background: #f0f2f5; max-width: 320px;">
@@ -6721,6 +6722,18 @@ async function deleteAuto(idx) {
   if (!confirm('Delete this automation?')) return;
   await fetch('/ui/automations/' + idx, {method: 'DELETE'});
   location.reload();
+}
+
+async function removeFbDuplicates() {
+  if (!confirm('Remove all duplicate Facebook rules? This will keep one rule per unique post and cannot be undone.')) return;
+  const res = await fetch('/ui/automations/deduplicate', { method: 'POST', headers: {'Content-Type': 'application/json'} });
+  const data = await res.json();
+  if (data.ok) {
+    alert(data.message || 'Duplicates removed!');
+    location.reload();
+  } else {
+    alert('Error: ' + (data.error || 'Failed'));
+  }
 }
 
 async function clearLatestAutomations() {
@@ -7859,6 +7872,30 @@ def clear_latest_automations():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+@app.route("/ui/automations/deduplicate", methods=["POST"])
+def deduplicate_automations():
+    """Remove duplicate FB automations — keep only 1 rule per unique (name, post_ids key)."""
+    try:
+        autos = load_automations()
+        seen_keys = {}
+        deduped = []
+        removed = 0
+        for auto in autos:
+            post_ids = tuple(sorted(auto.get("post_ids") or []))
+            name = (auto.get("name") or "").strip().lower()
+            # Key = name + post_ids combo. If post_ids is empty (scope=all), key = name only
+            key = (name, post_ids) if post_ids else (name,)
+            if key not in seen_keys:
+                seen_keys[key] = True
+                deduped.append(auto)
+            else:
+                removed += 1
+        if removed > 0:
+            save_automations(deduped)
+        return jsonify({"ok": True, "message": f"Removed {removed} duplicate rule(s). {len(deduped)} unique rules remain.", "removed": removed})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 @app.route("/ui/automations/<int:idx>/toggle", methods=["POST"])
 def toggle_automation(idx):
     data  = request.json
@@ -8335,8 +8372,10 @@ def automate_single_media_post(m, products, fb_posts):
             existing_post_ids.update(auto.get("post_ids") or [])
             
         existing_fb_post_ids = set()
+        existing_fb_names = set()
         for auto in fb_autos:
             existing_fb_post_ids.update(auto.get("post_ids") or [])
+            existing_fb_names.add((auto.get("name") or "").strip().lower())
             
         media_id = m.get("id")
         if media_id in existing_post_ids:
@@ -8451,7 +8490,8 @@ def automate_single_media_post(m, products, fb_posts):
                         
         # Create FB rule: use matched FB post if found, otherwise use IG post data directly
         fb_post_id = fb_post["id"] if fb_post else f"ig_{media_id}"
-        if fb_post_id not in existing_fb_post_ids:
+        rule_name_lower = rule_name.strip().lower()
+        if fb_post_id not in existing_fb_post_ids and rule_name_lower not in existing_fb_names:
             fb_reply = (
                 f"വാട്സാപ്പിൽ പ്രോഡക്റ്റ് ഓർഡർ ചെയ്യാൻ വേണ്ടി ഈ ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക 👇\n"
                 f"https://wa.me/919895138430?text={fb_kw}\n\n"
