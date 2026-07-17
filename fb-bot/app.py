@@ -6118,44 +6118,8 @@ HTML = """
       <span>🔍</span>
       <input type="text" id="fb-rules-search" placeholder="Search automations..." style="border: none; background: transparent; font-size: 13px; outline: none; width: 100%;" oninput="filterFbRules()">
     </div>
-    {% for auto in automations %}
-    <div class="auto-item">
-      {% if auto.get('thumbnail') %}
-      <img src="{{ auto['thumbnail'] }}" class="auto-thumb">
-      {% else %}
-      <div class="auto-thumb-ph">🎬</div>
-      {% endif %}
-      <div class="auto-info">
-        <div class="auto-name">{{ auto['name'] }}</div>
-        <div class="auto-meta">
-          {% if auto.get('scope') == 'all' %}<span class="pill pill-blue">📢 All posts</span>
-          {% else %}<span class="pill pill-blue">📌 {{ auto.get('post_ids',[])|length }} post(s)</span>{% endif %}
-
-          {% if auto.get('keyword_type') == 'any' %}<span class="pill pill-green">💬 Any comment</span>
-          {% else %}<span class="pill pill-green">🔑 {{ auto.get('keywords',[])|join(', ') }}</span>{% endif %}
-
-          {% set action = auto.get('action','comment') %}
-          {% if action == 'comment' %}<span class="pill pill-blue">💬 Comment Reply</span>
-          {% elif action == 'dm' %}<span class="pill pill-purple">✉️ DM Only</span>
-          {% else %}<span class="pill pill-blue">💬 Reply</span><span class="pill pill-purple">✉️ DM</span>{% endif %}
-        </div>
-      </div>
-      <div class="auto-actions">
-        <label class="toggle">
-          <input type="checkbox" {{ 'checked' if auto.get('active', True) else '' }}
-            onchange="toggleAuto({{ loop.index0 }}, this.checked)">
-          <span class="slider"></span>
-        </label>
-        <button class="btn btn-edit" onclick='editAuto({{ loop.index0 }}, {{ auto|tojson }})'>Edit</button>
-        <button class="btn btn-danger" onclick="deleteAuto({{ loop.index0 }})">Delete</button>
-      </div>
-    </div>
-    {% else %}
-    <div class="empty-state">
-      <div class="icon">🤖</div>
-      <p>No automations yet.<br>Click <strong>+ Create Automation</strong> to get started.</p>
-    </div>
-    {% endfor %}
+    <div id="fb-automations-list-container"></div>
+    <div id="fb-rules-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:20px; align-items:center; flex-wrap:wrap; margin-bottom:10px;"></div>
   </div>
 
   <div class="card">
@@ -6323,19 +6287,178 @@ HTML = """
 </div>
 
 <script>
-function filterFbRules() {
-  const q = document.getElementById('fb-rules-search').value.toLowerCase().trim();
-  const items = document.querySelectorAll('.auto-item');
-  items.forEach(item => {
-    const name = (item.querySelector('.auto-name') ? item.querySelector('.auto-name').textContent : '').toLowerCase();
-    const meta = (item.querySelector('.auto-meta') ? item.querySelector('.auto-meta').textContent : '').toLowerCase();
-    if (name.includes(q) || meta.includes(q)) {
-      item.style.display = 'flex';
+const automations = {{ automations|tojson }};
+let fbRulesCurrentPage = 1;
+const FB_RULES_PAGE_SIZE = 20;
+
+function renderFbRules() {
+  const container = document.getElementById('fb-automations-list-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const q = document.getElementById('fb-rules-search') ? document.getElementById('fb-rules-search').value.toLowerCase().trim() : '';
+
+  // 1. Filter
+  let filtered = automations;
+  if (q) {
+    filtered = automations.filter(r => {
+      const name = (r.name || '').toLowerCase();
+      const reply = (r.reply || '').toLowerCase();
+      const dm = (r.dm_message || '').toLowerCase();
+      const kws = (r.keywords || []).join(' ').toLowerCase();
+      return name.includes(q) || reply.includes(q) || dm.includes(q) || kws.includes(q);
+    });
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🤖</div>
+        <p>No automations found.<br>Click <strong>+ Create Automation</strong> to get started.</p>
+      </div>
+    `;
+    const pagination = document.getElementById('fb-rules-pagination');
+    if (pagination) pagination.innerHTML = '';
+    return;
+  }
+
+  // 2. Paginate
+  const totalPages = Math.ceil(filtered.length / FB_RULES_PAGE_SIZE);
+  if (fbRulesCurrentPage > totalPages) fbRulesCurrentPage = totalPages || 1;
+  if (fbRulesCurrentPage < 1) fbRulesCurrentPage = 1;
+
+  const startIndex = (fbRulesCurrentPage - 1) * FB_RULES_PAGE_SIZE;
+  const pageItems = filtered.slice(startIndex, startIndex + FB_RULES_PAGE_SIZE);
+
+  // 3. Render items
+  pageItems.forEach((auto) => {
+    // Find absolute index in the global automations array
+    const globalIdx = automations.findIndex(x => x === auto);
+
+    const autoItem = document.createElement('div');
+    autoItem.className = 'auto-item';
+
+    const hasThumbnail = auto.thumbnail;
+    const thumbHtml = hasThumbnail 
+      ? `<img src="${auto.thumbnail}" class="auto-thumb">`
+      : `<div class="auto-thumb-ph">🎬</div>`;
+
+    const scopeBadge = auto.scope === 'all' 
+      ? `<span class="pill pill-blue">📢 All posts</span>`
+      : `<span class="pill pill-blue">📌 ${(auto.post_ids || []).length} post(s)</span>`;
+
+    const kwBadge = auto.keyword_type === 'any'
+      ? `<span class="pill pill-green">💬 Any comment</span>`
+      : `<span class="pill pill-green">🔑 ${(auto.keywords || []).join(', ')}</span>`;
+
+    let actionBadge = '';
+    if (auto.action === 'comment') {
+      actionBadge = `<span class="pill pill-blue">💬 Comment Reply</span>`;
+    } else if (auto.action === 'dm') {
+      actionBadge = `<span class="pill pill-purple">✉️ DM Only</span>`;
     } else {
-      item.style.display = 'none';
+      actionBadge = `<span class="pill pill-blue">💬 Reply</span><span class="pill pill-purple">✉️ DM</span>`;
     }
+
+    const checked = auto.active !== false ? 'checked' : '';
+
+    autoItem.innerHTML = `
+      ${thumbHtml}
+      <div class="auto-info">
+        <div class="auto-name">${auto.name}</div>
+        <div class="auto-meta">
+          ${scopeBadge}
+          ${kwBadge}
+          ${actionBadge}
+        </div>
+      </div>
+      <div class="auto-actions">
+        <label class="toggle">
+          <input type="checkbox" ${checked} onchange="toggleAuto(${globalIdx}, this.checked)">
+          <span class="slider"></span>
+        </label>
+        <button class="btn btn-edit" onclick='editAuto(${globalIdx}, ${JSON.stringify(auto)})'>Edit</button>
+        <button class="btn btn-danger" onclick="deleteAuto(${globalIdx})">Delete</button>
+      </div>
+    `;
+    container.appendChild(autoItem);
   });
+
+  // 4. Render Pagination Controls
+  renderFbPagination(filtered.length);
 }
+
+function renderFbPagination(totalItems) {
+  const container = document.getElementById('fb-rules-pagination');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const totalPages = Math.ceil(totalItems / FB_RULES_PAGE_SIZE);
+  if (totalPages <= 1) return;
+
+  // Prev Button
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'btn';
+  prevBtn.style.padding = '6px 12px';
+  prevBtn.style.fontSize = '12.5px';
+  prevBtn.style.background = 'rgba(255,255,255,0.05)';
+  prevBtn.style.border = '1px solid #ccd0d5';
+  prevBtn.disabled = fbRulesCurrentPage === 1;
+  prevBtn.innerHTML = '⟨ Prev';
+  prevBtn.onclick = () => {
+    if (fbRulesCurrentPage > 1) {
+      fbRulesCurrentPage--;
+      renderFbRules();
+    }
+  };
+  container.appendChild(prevBtn);
+
+  // Page Numbers
+  for (let i = 1; i <= totalPages; i++) {
+    const pageBtn = document.createElement('button');
+    pageBtn.className = 'btn';
+    pageBtn.style.padding = '6px 12px';
+    pageBtn.style.fontSize = '12.5px';
+    pageBtn.style.minWidth = '36px';
+    if (i === fbRulesCurrentPage) {
+      pageBtn.style.background = '#1877f2';
+      pageBtn.style.color = '#fff';
+      pageBtn.style.border = 'none';
+    } else {
+      pageBtn.style.background = 'rgba(255,255,255,0.05)';
+      pageBtn.style.border = '1px solid #ccd0d5';
+    }
+    pageBtn.innerText = i;
+    pageBtn.onclick = () => {
+      fbRulesCurrentPage = i;
+      renderFbRules();
+    };
+    container.appendChild(pageBtn);
+  }
+
+  // Next Button
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'btn';
+  nextBtn.style.padding = '6px 12px';
+  nextBtn.style.fontSize = '12.5px';
+  nextBtn.style.background = 'rgba(255,255,255,0.05)';
+  nextBtn.style.border = '1px solid #ccd0d5';
+  nextBtn.disabled = fbRulesCurrentPage === totalPages;
+  nextBtn.innerHTML = 'Next ⟩';
+  nextBtn.onclick = () => {
+    if (fbRulesCurrentPage < totalPages) {
+      fbRulesCurrentPage++;
+      renderFbRules();
+    }
+  };
+  container.appendChild(nextBtn);
+}
+
+function filterFbRules() {
+  fbRulesCurrentPage = 1;
+  renderFbRules();
+}
+
 
 let currentStep = 1;
 let totalSteps  = 5;
@@ -6634,6 +6757,9 @@ async function deleteKeyword(kw) {
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
+
+// Render the Facebook automations list on load
+renderFbRules();
 </script>
 </body>
 </html>
