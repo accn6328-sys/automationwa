@@ -16,36 +16,28 @@ load_dotenv()
 # A random one is picked as the public comment reply when no custom reply is set.
 # Mimics natural human behaviour — each commenter gets a different response.
 IG_DM_COMMENT_VARIATIONS = [
-    "Just sent the link to your DMs! Let me know if you got it.",
-    "Check your messages! I just slid the link right into your inbox.",
-    "Sent! You can find the link waiting for you in your messages.",
-    "I just DM\u2019ed you the full details and the link!",
-    "Check your inbox! The link has been sent your way.",
-    "Just dropped the link in your messages. Enjoy!",
-    "The link is officially in your DMs. Check it out!",
-    "Sent you a direct message with the link! Let me know what you think.",
-    "Check your requests! The link is sitting in your inbox right now.",
-    "All set! I just sent the link over via DM.",
-    "Inboxed you the link! \U0001f44d",
-    "Sent to your DMs! Check it out.",
-    "Link is in your messages!",
-    "Just sent it over! Check your DMs.",
-    "Sent! Check your inbox.",
-    "DM sent! The link is right there.",
-    "Check your messages! Sent it.",
-    "Link dropped in your DMs. \U0001f64c",
-    "Just DM\u2019ed you!",
-    "Check your inbox\u2014sent you the info!",
-    "Awesome to connect! I just sent the resource link to your DMs.",
-    "So glad you\u2019re interested! Check your DMs for the link.",
-    "The link is on its way to your inbox! Can\u2019t wait to hear your thoughts.",
-    "Just sent you the access link via message. Enjoy the content!",
-    "Check your DMs! Everything you need is right there in your inbox.",
-    "Sent it over! Let me know if that link helps you out.",
-    "You\u2019re all set! I just sent the private link to your messages.",
-    "Check your direct messages. The link is officially delivered!",
-    "Excited for you to check this out! Sent the link to your inbox.",
-    "Just popped into your DMs with the link! Let me know if you need anything else.",
+    "Thanks for your comment! \U0001f49b Check your DMs for the details, and don't forget to follow our page so you never miss future updates.",
+    "You're awesome! \U0001f64c We've sent you a DM. Make sure to follow our page to stay in the loop.",
+    "Done! \U0001f4e9 Your message is waiting in your DMs. Follow our page for more helpful content and updates.",
+    "Thanks for reaching out! \U0001f4ac We've replied in your DMs. Hit that Follow button so you don't miss what's next.",
+    "Your DM is on the way! \U0001f680 Be sure to follow our page for more tips, offers, and updates.",
+    "Sent! \u2728 Check your DMs, and if you haven't already, follow our page for more exclusive content.",
+    "We just messaged you! \U0001f4ec Follow our page to keep up with our latest posts and special updates.",
+    "Thanks for commenting! \u2764\ufe0f Your DM is ready. Follow our page to stay connected.",
+    "Check your inbox! \U0001f4e9 We've sent everything over. Don't forget to follow our page for more.",
+    "You're all set! \U0001f389 Head to your DMs, and make sure you're following our page for future updates.",
+    "Thanks! \U0001f60a Your requested info is in your DMs. Follow our page so you never miss new content.",
+    "Just sent you a DM! \U0001f48c Follow our page for more valuable tips, news, and exclusive updates.",
+    "Appreciate your comment! \U0001f64f Your DM is waiting. Follow our page and stay tuned for more.",
+    "Done! \U0001f3af Check your DMs now, and don't forget to follow our page for upcoming content.",
+    "Your message has been sent! \U0001f4ec Follow our page to keep getting helpful updates and new posts.",
+    "Thanks for stopping by! \U0001f31f Check your DMs, and hit Follow to join our community.",
+    "We've got you covered! \U0001f499 Your DM is waiting. Follow our page for more exciting content.",
+    "Sent with love! \U0001f495 Check your DMs and make sure you're following our page for future updates.",
+    "Thanks for the comment! \U0001f525 Your DM is ready. Follow our page to stay updated with everything we share.",
+    "All set! \u2705 We've sent you a DM. Follow our page so you don't miss any new posts or announcements.",
+    "Great to hear from you! \U0001f389 Check your DMs now, and follow our page to stay connected with us.",
+    "Success! \U0001f680 Your DM has been sent. Be sure to follow our page for more updates, tips, and exclusive content.",
 ]
 
 IG_DM_REPLY_VARIATIONS = [
@@ -1193,6 +1185,22 @@ def _migrate_dm_texts_column():
     finally:
         conn.close()
 
+
+def _migrate_delay_seconds():
+    """Migration: set all existing IG and FB automation delay_seconds to 60."""
+    conn = get_db_conn()
+    try:
+        cursor = conn.cursor()
+        for table in ("ig_automations", "fb_automations"):
+            cursor.execute(f"UPDATE {table} SET delay_seconds = 60 WHERE delay_seconds IS NULL OR delay_seconds = 0")
+            affected = cursor.rowcount
+            if affected:
+                print(f"[DB Migration] Set delay_seconds=60 on {affected} rows in {table}", flush=True)
+        conn.commit()
+    except Exception as e:
+        print(f"[DB Migration] delay_seconds migration error: {e}", flush=True)
+    finally:
+        conn.close()
 
 def _migrate_owner_id_columns():
     """One-time migration: add owner_id column to tables if they don't exist yet."""
@@ -7249,7 +7257,7 @@ INSTAGRAM_HTML = """
             <label style="font-weight:700">Public Comment Reply Variations</label>
             <div style="font-size:11px;color:#6b7280;margin-bottom:10px">One variation is picked at random each time (with a 10s delay) to avoid Instagram spam detection. At least 1 required.</div>
             <div id="auto-replies-container" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;padding:5px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;">
-              <!-- Dynamically generated with 30 variation textareas -->
+              <!-- Dynamically generated with 22 variation textareas -->
             </div>
           </div>
         </div>
@@ -7291,7 +7299,7 @@ INSTAGRAM_HTML = """
 
         <div class="input-group">
           <label>Send Delay (seconds)</label>
-          <input type="number" id="auto-delay" min="0" max="60" value="0" style="max-width:110px;padding:11px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;outline:none">
+          <input type="number" id="auto-delay" min="0" max="300" value="60" style="max-width:110px;padding:11px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;outline:none">
         </div>
       </div>
 
@@ -7529,10 +7537,10 @@ function openModal(d,idx){
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
   const idsToClear = ['auto-name','auto-dm','follow-prompt','email-prompt'];
-  for (let i = 1; i <= 30; i++) idsToClear.push('auto-reply-' + i);
+  for (let i = 1; i <= 22; i++) idsToClear.push('auto-reply-' + i);
   idsToClear.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   if(!d){
-    for (let i = 1; i <= 30; i++) {
+  for (let i = 1; i <= 22; i++) {
       const el = document.getElementById('auto-reply-' + i);
       if (el) el.value = igDefaultReplies[i - 1] || '';
     }
@@ -7852,43 +7860,35 @@ async function deleteKeyword(kw){if(confirm('Delete?')){await fetch('/instagram/
 document.getElementById('modal-overlay').onclick=e=>{if(e.target===document.getElementById('modal-overlay'))closeModal();};
 
 const igDefaultReplies = [
-  "Just sent the link to your DMs! Let me know if you got it.",
-  "Check your messages! I just slid the link right into your inbox.",
-  "Sent! You can find the link waiting for you in your messages.",
-  "I just DM’ed you the full details and the link!",
-  "Check your inbox! The link has been sent your way.",
-  "Just dropped the link in your messages. Enjoy!",
-  "The link is officially in your DMs. Check it out!",
-  "Sent you a direct message with the link! Let me know what you think.",
-  "Check your requests! The link is sitting in your inbox right now.",
-  "All set! I just sent the link over via DM.",
-  "Inboxed you the link! 👍",
-  "Sent to your DMs! Check it out.",
-  "Link is in your messages!",
-  "Just sent it over! Check your DMs.",
-  "Sent! Check your inbox.",
-  "DM sent! The link is right there.",
-  "Check your messages! Sent it.",
-  "Link dropped in your DMs. 🙌",
-  "Just DM’ed you!",
-  "Check your inbox—sent you the info!",
-  "Awesome to connect! I just sent the resource link to your DMs.",
-  "So glad you’re interested! Check your DMs for the link.",
-  "The link is on its way to your inbox! Can’t wait to hear your thoughts.",
-  "Just sent you the access link via message. Enjoy the content!",
-  "Check your DMs! Everything you need is right there in your inbox.",
-  "Sent it over! Let me know if that link helps you out.",
-  "You’re all set! I just sent the private link to your messages.",
-  "Check your direct messages. The link is officially delivered!",
-  "Excited for you to check this out! Sent the link to your inbox.",
-  "Just popped into your DMs with the link! Let me know if you need anything else."
+  "Thanks for your comment! \U0001f49b Check your DMs for the details, and don't forget to follow our page so you never miss future updates.",
+  "You're awesome! \U0001f64c We've sent you a DM. Make sure to follow our page to stay in the loop.",
+  "Done! \U0001f4e9 Your message is waiting in your DMs. Follow our page for more helpful content and updates.",
+  "Thanks for reaching out! \U0001f4ac We've replied in your DMs. Hit that Follow button so you don't miss what's next.",
+  "Your DM is on the way! \U0001f680 Be sure to follow our page for more tips, offers, and updates.",
+  "Sent! \u2728 Check your DMs, and if you haven't already, follow our page for more exclusive content.",
+  "We just messaged you! \U0001f4ec Follow our page to keep up with our latest posts and special updates.",
+  "Thanks for commenting! \u2764\ufe0f Your DM is ready. Follow our page to stay connected.",
+  "Check your inbox! \U0001f4e9 We've sent everything over. Don't forget to follow our page for more.",
+  "You're all set! \U0001f389 Head to your DMs, and make sure you're following our page for future updates.",
+  "Thanks! \U0001f60a Your requested info is in your DMs. Follow our page so you never miss new content.",
+  "Just sent you a DM! \U0001f48c Follow our page for more valuable tips, news, and exclusive updates.",
+  "Appreciate your comment! \U0001f64f Your DM is waiting. Follow our page and stay tuned for more.",
+  "Done! \U0001f3af Check your DMs now, and don't forget to follow our page for upcoming content.",
+  "Your message has been sent! \U0001f4ec Follow our page to keep getting helpful updates and new posts.",
+  "Thanks for stopping by! \U0001f31f Check your DMs, and hit Follow to join our community.",
+  "We've got you covered! \U0001f499 Your DM is waiting. Follow our page for more exciting content.",
+  "Sent with love! \U0001f495 Check your DMs and make sure you're following our page for future updates.",
+  "Thanks for the comment! \U0001f525 Your DM is ready. Follow our page to stay updated with everything we share.",
+  "All set! \u2705 We've sent you a DM. Follow our page so you don't miss any new posts or announcements.",
+  "Great to hear from you! \U0001f389 Check your DMs now, and follow our page to stay connected with us.",
+  "Success! \U0001f680 Your DM has been sent. Be sure to follow our page for more updates, tips, and exclusive content.",
 ];
 
 function generateAutoReplyFields() {
   const container = document.getElementById('auto-replies-container');
   if (!container) return;
   container.innerHTML = '';
-  for (let i = 1; i <= 30; i++) {
+  for (let i = 1; i <= 22; i++) {
     const div = document.createElement('div');
     const isRequired = (i === 1);
     const labelText = `Reply Variation ${i}${isRequired ? ' *' : ' (optional)'}`;
@@ -10556,9 +10556,10 @@ REVIEW_DEMO_HTML = """
 
 if __name__ == "__main__":
     import threading
-    _migrate_reply_texts_column()  # Add reply_texts column to existing DBs
-    _migrate_dm_texts_column()     # Add dm_texts column to existing DBs
+    _migrate_reply_texts_column()   # Add reply_texts column to existing DBs
+    _migrate_dm_texts_column()      # Add dm_texts column to existing DBs
     _migrate_owner_id_columns()     # Add owner_id columns for multi-tenant isolation
+    _migrate_delay_seconds()        # Set all existing rules delay_seconds to 60
     threading.Thread(target=ig_queue_worker, daemon=True).start()
     threading.Thread(target=ig_scheduler_worker, daemon=True).start()
     threading.Thread(target=ig_token_health_worker, daemon=True).start()
