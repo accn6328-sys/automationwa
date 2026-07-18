@@ -1048,24 +1048,33 @@ def handle_comment(value):
         return
 
     automations = load_automations()
+    print(f"  [FB Bot Debug] Loaded {len(automations)} automations.", flush=True)
     for auto in automations:
-        if not auto.get("active", True):
+        name = auto.get("name", "Unnamed")
+        active = auto.get("active", True)
+        print(f"  [FB Bot Debug] Checking rule '{name}' (active={active})", flush=True)
+        if not active:
             continue
         scope = auto.get("scope", "all")
         if scope == "specific":
             clean_saved_ids = [pid.split("_")[-1] for pid in auto.get("post_ids", [])]
             clean_webhook_pid = post_id.split("_")[-1]
             if clean_webhook_pid not in clean_saved_ids:
+                print(f"  [FB Bot Debug] Rule '{name}' skipped: post ID mismatch. Webhook post ID={clean_webhook_pid}, Rule post IDs={clean_saved_ids}", flush=True)
                 continue
         kw_type = auto.get("keyword_type", "any")
         matched = False
         if kw_type == "any":
             matched = True
         else:
-            for kw in auto.get("keywords", []):
+            keywords = auto.get("keywords", [])
+            for kw in keywords:
                 if kw.lower() in comment_text:
                     matched = True
                     break
+            if not matched:
+                print(f"  [FB Bot Debug] Rule '{name}' skipped: keyword mismatch. Comment='{comment_text}', Keywords={keywords}", flush=True)
+                continue
 
         if matched:
             print(f"  Auto '{auto['name']}' matched")
