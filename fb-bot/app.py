@@ -2006,26 +2006,26 @@ def capture_ig_lead(user_id, username, email=None, phone=None, automation_name=N
 
 
 # ── Daily DM cap enforcement ───────────────────────────────────────────────
-def daily_cap_ok() -> bool:
+def daily_cap_ok(owner_id=None) -> bool:
     """Return True if today's DM count is below the configured cap."""
-    stats = load_ig_stats()
+    stats = load_ig_stats(owner_id=owner_id)
     today = time.strftime("%Y-%m-%d")
     if stats.get("dms_today_date") != today:
         stats["dms_today"] = 0
         stats["dms_today_date"] = today
-        save_ig_stats(stats)
-    cap = load_ig_settings().get("daily_dm_cap", 200)
+        save_ig_stats(stats, owner_id=owner_id)
+    cap = load_ig_settings(owner_id=owner_id).get("daily_dm_cap", 200)
     return stats.get("dms_today", 0) < cap
 
-def bump_daily_dm():
+def bump_daily_dm(owner_id=None):
     """Increment today's DM counter (resets on new calendar day)."""
-    stats = load_ig_stats()
+    stats = load_ig_stats(owner_id=owner_id)
     today = time.strftime("%Y-%m-%d")
     if stats.get("dms_today_date") != today:
         stats["dms_today"] = 0
         stats["dms_today_date"] = today
     stats["dms_today"] = stats.get("dms_today", 0) + 1
-    save_ig_stats(stats)
+    save_ig_stats(stats, owner_id=owner_id)
 
 
 def discover_ig_user_id():
