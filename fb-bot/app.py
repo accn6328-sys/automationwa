@@ -8616,6 +8616,24 @@ def automate_single_media_post(m, products, fb_posts):
                     if ig_clean[:40] == fb_clean[:40]:
                         fb_post = post
                         break
+            
+            # Fallback 1: Match by product keyword (case insensitive) inside the Facebook post message
+            if not fb_post and keyword:
+                kw_lower = keyword.lower().strip()
+                for post in fb_posts:
+                    fb_msg = (post.get("message") or "").lower()
+                    if kw_lower in fb_msg:
+                        fb_post = post
+                        break
+                        
+            # Fallback 2: Match if Facebook post message is a substring of the Instagram caption or vice versa
+            if not fb_post:
+                for post in fb_posts:
+                    fb_msg = (post.get("message") or "").strip().lower()
+                    ig_msg = caption.strip().lower()
+                    if fb_msg and len(fb_msg) > 3 and (fb_msg in ig_msg or ig_msg in fb_msg):
+                        fb_post = post
+                        break
                         
         # Create FB rule: use matched FB post if found, otherwise use IG post data directly
         fb_post_id = fb_post["id"] if fb_post else f"ig_{media_id}"
