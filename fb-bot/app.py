@@ -7566,7 +7566,7 @@ function openModal(d,idx){
     document.getElementById('auto-name').value=d.name||'';
     // Populate reply variation fields (support new reply_texts array and legacy single reply)
     const _replyTexts = (d.reply_texts && d.reply_texts.length) ? d.reply_texts : (d.reply ? [d.reply] : []);
-    for(let _i=1;_i<=30;_i++){
+    for(let _i=1;_i<=22;_i++){
       const el=document.getElementById('auto-reply-'+_i);
       if(el) el.value = _replyTexts[_i-1] || '';
     }
