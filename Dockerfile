@@ -3,10 +3,11 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install Python 3 + pip + ffmpeg via apt
+# Install Python 3 + pip + ffmpeg + opencv dependencies via apt
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv ffmpeg git && \
+        python3 python3-pip python3-venv ffmpeg git \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Ensure python3 symlink
@@ -27,10 +28,11 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install runtime dependencies (Python + ffmpeg only, no build tools)
+# Install runtime dependencies (Python + ffmpeg + opencv runtime libs)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 python3-pip ffmpeg && \
+        python3 python3-pip ffmpeg \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sf /usr/bin/python3 /usr/local/bin/python3 && \
     ln -sf /usr/bin/python3 /usr/local/bin/python
