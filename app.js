@@ -771,12 +771,10 @@ function clearSessionFiles(dir) {
 
 // ── YT Bot subprocess launcher ──────────────────────────────────────────────
 // The Python Flask YT bot runs on internal port 8080, proxied at /yt/*
-const PORT = process.env.PORT || 3000;
-// Swap YT bot and Express ports if PORT is 8080 (Railway default target port)
-// so that Express runs on 8081 (where Railway routes traffic) and YT bot runs on 8080 internally.
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const EXPRESS_PORT = PORT;
-const YT_BOT_PORT = parseInt(PORT) + 10;
-const FB_BOT_PORT = parseInt(PORT) + 20;
+const YT_BOT_PORT = PORT + 10;
+const FB_BOT_PORT = PORT + 20;
 
 const YT_BOT_DIR = path.join(__dirname, 'yt-bot');
 let ytBotProcess = null;
