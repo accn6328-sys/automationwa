@@ -9873,6 +9873,17 @@ def webhook():
                 elif field in ("mentions", "mention_tag"):
                     handle_ig_mention(value, access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
             for event in entry.get("messaging", []):
+                try:
+                    import sys
+                    import os
+                    # Add app directory to path
+                    parent_dir = os.path.dirname(os.path.abspath(__file__)) # fb-bot
+                    grandparent_dir = os.path.dirname(parent_dir) # fullautowebapp or app root
+                    sys.path.append(grandparent_dir)
+                    sys.path.append(os.path.join(grandparent_dir, "..")) # local workspace root fallback
+                    import amazonboss
+                except Exception as e:
+                    print(f"[Worker Error] Could not import amazonboss: {e}", flush=True)
                 handle_ig_messaging(event, access_token=resolved_token, ig_user_id=resolved_ig_user_id, owner_id=resolved_owner_id)
             continue
 
