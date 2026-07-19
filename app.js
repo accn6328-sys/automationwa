@@ -774,9 +774,9 @@ function clearSessionFiles(dir) {
 const PORT = process.env.PORT || 3000;
 // Swap YT bot and Express ports if PORT is 8080 (Railway default target port)
 // so that Express runs on 8081 (where Railway routes traffic) and YT bot runs on 8080 internally.
-const EXPRESS_PORT = PORT == 8080 ? 8081 : PORT;
-const YT_BOT_PORT = PORT == 8080 ? 8080 : parseInt(PORT) + 1;
-const FB_BOT_PORT = parseInt(PORT) + 2;
+const EXPRESS_PORT = PORT;
+const YT_BOT_PORT = parseInt(PORT) + 10;
+const FB_BOT_PORT = parseInt(PORT) + 20;
 
 const YT_BOT_DIR = path.join(__dirname, 'yt-bot');
 let ytBotProcess = null;
