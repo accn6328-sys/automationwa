@@ -121,7 +121,7 @@ BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
 
 # Configuration, state, and orders paths
 persistent_dir = os.getenv("PERSISTENT_DIR")
-if not persistent_dir and os.path.exists("/data"):
+if not persistent_dir and os.path.exists("/data") and os.access("/data", os.W_OK):
     persistent_dir = "/data"
 
 def get_flow_path(filename):
