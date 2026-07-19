@@ -1464,6 +1464,7 @@ app.use('/yt', createProxyMiddleware({
 app.use('/fb', createProxyMiddleware({
     target: `http://127.0.0.1:${FB_BOT_PORT}`,
     changeOrigin: true,
+    pathRewrite: { '^/fb': '' },
     on: {
         error: (err, req, res) => {
             console.error('[FB Proxy] Error:', err.message);
