@@ -1461,6 +1461,27 @@ app.use('/yt', createProxyMiddleware({
     }
 }));
 
+app.get(['/fb/auth/instagram/login', '/auth/instagram/login'], (req, res) => {
+    const state = crypto.randomBytes(16).toString('hex');
+    const host = req.get('host');
+    const protocol = req.protocol || 'https';
+    const redirectUri = `${protocol}://${host}/fb/auth/instagram/callback`;
+    const appId = process.env.IG_APP_ID || process.env.AEYE_APP_ID || process.env.APP_ID || '1626367745108701';
+    
+    const params = new URLSearchParams({
+        client_id: appId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
+        enable_fb_login: '0',
+        force_authentication: '1',
+        state: state
+    });
+
+    const targetUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`;
+    return res.redirect(targetUrl);
+});
+
 app.use('/fb', createProxyMiddleware({
     target: `http://127.0.0.1:${FB_BOT_PORT}`,
     changeOrigin: true,
