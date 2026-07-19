@@ -3414,7 +3414,7 @@ async function connectToWhatsApp() {
     }
 }
 
-server.listen(EXPRESS_PORT, () => {
+server.listen(EXPRESS_PORT, '0.0.0.0', () => {
     addLog(`Server is running on port ${EXPRESS_PORT}`);
     addLog(`Dashboard URL: http://localhost:${EXPRESS_PORT}`);
     addLog(`Persistent storage path: ${persistentDir || 'None (using local fallback)'}`);
