@@ -87,8 +87,8 @@ app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/fb')
 # Instagram & FB credentials mapping
 IG_ACCESS_TOKEN        = os.getenv("IG_ACCESS_TOKEN") or os.getenv("PAGE_ACCESS_TOKEN")
 IG_BUSINESS_ACCOUNT_ID = os.getenv("IG_BUSINESS_ACCOUNT_ID") or os.getenv("IG_USER_ID")
-IG_APP_ID              = os.getenv("IG_APP_ID") or os.getenv("APP_ID")
-IG_APP_SECRET          = os.getenv("IG_APP_SECRET") or os.getenv("APP_SECRET")
+IG_APP_ID              = os.getenv("IG_APP_ID") or os.getenv("AEYE_APP_ID") or os.getenv("APP_ID")
+IG_APP_SECRET          = os.getenv("IG_APP_SECRET") or os.getenv("AEYE_APP_SECRET") or os.getenv("APP_SECRET")
 WEBHOOK_VERIFY_TOKEN   = os.getenv("WEBHOOK_VERIFY_TOKEN") or os.getenv("VERIFY_TOKEN")
 PAGE_ID                = os.getenv("PAGE_ID")
 GRAPH_API_VERSION      = os.getenv("GRAPH_API_VERSION", "v19.0")
@@ -9742,6 +9742,25 @@ def razorpay_webhook():
         save_orders(orders)
     except Exception as e:
         print(f"[Razorpay Webhook] Error saving order to database: {e}", flush=True)
+
+@app.route("/auth/instagram/login")
+def auth_instagram_login():
+    import secrets
+    state = secrets.token_hex(16)
+    session["oauth_state"] = state
+    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    params = {
+        "client_id": IG_APP_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
+        "enable_fb_login": "0",
+        "force_authentication": "1",
+        "state": state
+    }
+    req = requests.models.PreparedRequest()
+    req.prepare_url("https://www.instagram.com/oauth/authorize", params)
+    return redirect(req.url)
         
 @app.route("/api/razorpay/create", methods=["POST"])
 def api_razorpay_create():
@@ -10018,6 +10037,25 @@ def get_ig_threads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/auth/instagram/login")
+def auth_instagram_login():
+    import secrets
+    state = secrets.token_hex(16)
+    session["oauth_state"] = state
+    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    params = {
+        "client_id": IG_APP_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
+        "enable_fb_login": "0",
+        "force_authentication": "1",
+        "state": state
+    }
+    req = requests.models.PreparedRequest()
+    req.prepare_url("https://www.instagram.com/oauth/authorize", params)
+    return redirect(req.url)
+
 @app.route("/instagram/ui/inbox/reply", methods=["POST"])
 def send_manual_inbox_reply():
     data = request.json or {}
@@ -10279,11 +10317,13 @@ def auth_instagram_login():
         "client_id": IG_APP_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "instagram_basic,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_manage_metadata",
+        "scope": "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
+        "enable_fb_login": "0",
+        "force_authentication": "1",
         "state": state
     }
     req = requests.models.PreparedRequest()
-    req.prepare_url("https://www.facebook.com/v19.0/dialog/oauth", params)
+    req.prepare_url("https://www.instagram.com/oauth/authorize", params)
     return redirect(req.url)
 
 @app.route("/auth/instagram/callback")
