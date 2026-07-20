@@ -1461,8 +1461,8 @@ app.use('/yt', createProxyMiddleware({
 
 app.get(['/fb/auth/instagram/login', '/auth/instagram/login'], (req, res) => {
     const state = crypto.randomBytes(16).toString('hex');
-    const host = req.get('host');
-    const protocol = req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
     const redirectUri = `${protocol}://${host}/fb/auth/instagram/callback`;
     const appId = process.env.IG_APP_ID || process.env.AEYE_APP_ID || process.env.APP_ID || '1626367745108701';
     
