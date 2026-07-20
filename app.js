@@ -1459,6 +1459,8 @@ app.use('/yt', createProxyMiddleware({
     }
 }));
 
+// Duplicate login route handled by Python Flask fb-bot instead (to prevent CSRF state session mismatches)
+/*
 app.get(['/fb/auth/instagram/login', '/auth/instagram/login'], (req, res) => {
     const state = crypto.randomBytes(16).toString('hex');
     const host = req.headers['x-forwarded-host'] || req.get('host');
@@ -1479,6 +1481,7 @@ app.get(['/fb/auth/instagram/login', '/auth/instagram/login'], (req, res) => {
     const targetUrl = `https://www.instagram.com/oauth/authorize?${params.toString()}`;
     return res.redirect(targetUrl);
 });
+*/
 
 app.use('/fb', createProxyMiddleware({
     target: `http://127.0.0.1:${FB_BOT_PORT}`,
