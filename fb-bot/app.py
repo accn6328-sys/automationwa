@@ -10452,6 +10452,7 @@ def auth_instagram_disconnect():
     return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
 
 @app.route("/instagram/review-demo")
+@app.route("/instagram/review_demo")
 def instagram_review_demo():
     connection = get_latest_review_connection()
     media = []
