@@ -87,8 +87,9 @@ app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/fb')
 # Instagram & FB credentials mapping
 IG_ACCESS_TOKEN        = os.getenv("IG_ACCESS_TOKEN") or os.getenv("PAGE_ACCESS_TOKEN")
 IG_BUSINESS_ACCOUNT_ID = os.getenv("IG_BUSINESS_ACCOUNT_ID") or os.getenv("IG_USER_ID")
-IG_APP_ID              = os.getenv("IG_APP_ID") or os.getenv("AEYE_APP_ID") or os.getenv("APP_ID")
-IG_APP_SECRET          = os.getenv("IG_APP_SECRET") or os.getenv("AEYE_APP_SECRET") or os.getenv("APP_SECRET")
+IG_APP_ID              = os.getenv("IG_APP_ID") or os.getenv("AEYE_IG_APP_ID") or os.getenv("AEYE_APP_ID") or os.getenv("APP_ID")
+IG_APP_SECRET          = os.getenv("IG_APP_SECRET") or os.getenv("AEYE_IG_APP_SECRET") or os.getenv("AEYE_APP_SECRET") or os.getenv("APP_SECRET")
+FB_APP_SECRET          = os.getenv("FB_APP_SECRET") or os.getenv("APP_SECRET") or os.getenv("AEYE_APP_SECRET")
 WEBHOOK_VERIFY_TOKEN   = os.getenv("WEBHOOK_VERIFY_TOKEN") or os.getenv("VERIFY_TOKEN")
 PAGE_ID                = os.getenv("PAGE_ID")
 GRAPH_API_VERSION      = os.getenv("GRAPH_API_VERSION", "v19.0")
@@ -9808,11 +9809,11 @@ def verify():
 def webhook():
     # Meta signature validation (X-Hub-Signature-256)
     signature_header = request.headers.get("X-Hub-Signature-256")
-    if signature_header and IG_APP_SECRET:
+    if signature_header and FB_APP_SECRET:
         try:
             sha_name, signature = signature_header.split("=")
             if sha_name == "sha256":
-                mac = hmac.new(IG_APP_SECRET.encode("utf-8"), request.get_data(), hashlib.sha256)
+                mac = hmac.new(FB_APP_SECRET.encode("utf-8"), request.get_data(), hashlib.sha256)
                 if not hmac.compare_digest(mac.hexdigest(), signature):
                     print("[Webhook Validation] ❌ Signature verification failed!", flush=True)
                     return "Invalid signature", 403
