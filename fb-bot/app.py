@@ -9743,24 +9743,6 @@ def razorpay_webhook():
     except Exception as e:
         print(f"[Razorpay Webhook] Error saving order to database: {e}", flush=True)
 
-@app.route("/auth/instagram/login")
-def auth_instagram_login():
-    import secrets
-    state = secrets.token_hex(16)
-    session["oauth_state"] = state
-    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
-    params = {
-        "client_id": IG_APP_ID,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
-        "enable_fb_login": "0",
-        "force_authentication": "1",
-        "state": state
-    }
-    req = requests.models.PreparedRequest()
-    req.prepare_url("https://www.instagram.com/oauth/authorize", params)
-    return redirect(req.url)
         
 @app.route("/api/razorpay/create", methods=["POST"])
 def api_razorpay_create():
@@ -10048,24 +10030,6 @@ def get_ig_threads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/auth/instagram/login")
-def auth_instagram_login():
-    import secrets
-    state = secrets.token_hex(16)
-    session["oauth_state"] = state
-    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
-    params = {
-        "client_id": IG_APP_ID,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
-        "enable_fb_login": "0",
-        "force_authentication": "1",
-        "state": state
-    }
-    req = requests.models.PreparedRequest()
-    req.prepare_url("https://www.instagram.com/oauth/authorize", params)
-    return redirect(req.url)
 
 @app.route("/instagram/ui/inbox/reply", methods=["POST"])
 def send_manual_inbox_reply():
