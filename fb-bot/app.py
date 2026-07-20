@@ -10287,7 +10287,12 @@ def auth_instagram_login():
     import secrets
     state = secrets.token_hex(16)
     session["oauth_state"] = state
-    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    x_forwarded_host = request.headers.get("X-Forwarded-Host")
+    if x_forwarded_host:
+        proto = request.headers.get("X-Forwarded-Proto", "https")
+        redirect_uri = f"{proto}://{x_forwarded_host}/fb/auth/instagram/callback"
+    else:
+        redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
     params = {
         "client_id": IG_APP_ID,
         "redirect_uri": redirect_uri,
@@ -10313,7 +10318,12 @@ def auth_instagram_callback():
         error_reason = request.args.get("error_description") or "Authorization code missing."
         return f"Authorization failed: {error_reason}", 400
         
-    redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
+    x_forwarded_host = request.headers.get("X-Forwarded-Host")
+    if x_forwarded_host:
+        proto = request.headers.get("X-Forwarded-Proto", "https")
+        redirect_uri = f"{proto}://{x_forwarded_host}/fb/auth/instagram/callback"
+    else:
+        redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
     
     try:
         # 1. Exchange code for short-lived token
@@ -10403,7 +10413,13 @@ def auth_instagram_callback():
         session["connected_ig_id"] = ig_account_id
         session["connected_ig_username"] = resolved_username
         
-        return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
+        x_forwarded_host = request.headers.get("X-Forwarded-Host")
+        if x_forwarded_host:
+            proto = request.headers.get("X-Forwarded-Proto", "https")
+            dest = f"{proto}://{x_forwarded_host}/fb/instagram/review-demo"
+        else:
+            dest = request.url_root.rstrip('/') + '/instagram/review-demo'
+        return redirect(dest)
         
     except Exception as e:
         return f"An error occurred during callback handling: {str(e)}", 500
@@ -10413,7 +10429,13 @@ def auth_instagram_disconnect():
     db_execute("DELETE FROM ig_review_demo_connections", commit=True)
     session.pop("connected_ig_id", None)
     session.pop("connected_ig_username", None)
-    return redirect(request.url_root.rstrip('/') + '/instagram/review-demo')
+    x_forwarded_host = request.headers.get("X-Forwarded-Host")
+    if x_forwarded_host:
+        proto = request.headers.get("X-Forwarded-Proto", "https")
+        dest = f"{proto}://{x_forwarded_host}/fb/instagram/review-demo"
+    else:
+        dest = request.url_root.rstrip('/') + '/instagram/review-demo'
+    return redirect(dest)
 
 @app.route("/instagram/review-demo")
 @app.route("/instagram/review_demo")
