@@ -10290,7 +10290,7 @@ def auth_instagram_login():
     session["oauth_state"] = state
     x_forwarded_host = request.headers.get("X-Forwarded-Host")
     if x_forwarded_host:
-        proto = request.headers.get("X-Forwarded-Proto", "https")
+        proto = "http" if ("localhost" in x_forwarded_host or "127.0.0.1" in x_forwarded_host) else "https"
         redirect_uri = f"{proto}://{x_forwarded_host}/fb/auth/instagram/callback"
     else:
         redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
@@ -10321,7 +10321,7 @@ def auth_instagram_callback():
         
     x_forwarded_host = request.headers.get("X-Forwarded-Host")
     if x_forwarded_host:
-        proto = request.headers.get("X-Forwarded-Proto", "https")
+        proto = "http" if ("localhost" in x_forwarded_host or "127.0.0.1" in x_forwarded_host) else "https"
         redirect_uri = f"{proto}://{x_forwarded_host}/fb/auth/instagram/callback"
     else:
         redirect_uri = request.url_root.rstrip('/') + '/auth/instagram/callback'
@@ -10416,7 +10416,7 @@ def auth_instagram_callback():
         
         x_forwarded_host = request.headers.get("X-Forwarded-Host")
         if x_forwarded_host:
-            proto = request.headers.get("X-Forwarded-Proto", "https")
+            proto = "http" if ("localhost" in x_forwarded_host or "127.0.0.1" in x_forwarded_host) else "https"
             dest = f"{proto}://{x_forwarded_host}/fb/instagram/review-demo"
         else:
             dest = request.url_root.rstrip('/') + '/instagram/review-demo'
@@ -10432,7 +10432,7 @@ def auth_instagram_disconnect():
     session.pop("connected_ig_username", None)
     x_forwarded_host = request.headers.get("X-Forwarded-Host")
     if x_forwarded_host:
-        proto = request.headers.get("X-Forwarded-Proto", "https")
+        proto = "http" if ("localhost" in x_forwarded_host or "127.0.0.1" in x_forwarded_host) else "https"
         dest = f"{proto}://{x_forwarded_host}/fb/instagram/review-demo"
     else:
         dest = request.url_root.rstrip('/') + '/instagram/review-demo'
