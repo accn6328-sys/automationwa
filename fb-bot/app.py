@@ -10288,6 +10288,7 @@ def auth_instagram_login():
     import secrets
     state = secrets.token_hex(16)
     session["oauth_state"] = state
+    print(f"[DEBUG OAuth] Headers: {dict(request.headers)}", flush=True)
     x_forwarded_host = request.headers.get("X-Forwarded-Host")
     if x_forwarded_host:
         proto = "http" if ("localhost" in x_forwarded_host or "127.0.0.1" in x_forwarded_host) else "https"
