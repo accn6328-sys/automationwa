@@ -7224,7 +7224,7 @@ INSTAGRAM_HTML = """
       <div class="auto-actions">
         <label class="toggle"><input type="checkbox" {{ 'checked' if auto.get('active',True) else '' }} onchange="toggleAuto({{ loop.index0 }}, this.checked)"><span class="slider"></span></label>
         <button class="btn" onclick="testAuto({{ loop.index0 }})" style="background:#f0fdf4;color:#16a34a;font-size:12px">▶ Test</button>
-        <button class="btn btn-edit" onclick='editAuto({{ loop.index0 }}, {{ auto|tojson }})'>Edit</button>
+        <button class="btn btn-edit" onclick="editAuto({{ loop.index0 }})">Edit</button>
         <button class="btn btn-danger" onclick="deleteAuto({{ loop.index0 }})">Delete</button>
       </div>
     </div>
@@ -7682,7 +7682,8 @@ function openModal(d,idx){
   toggleDMTypeButtons();
   showStep(1); document.getElementById('modal-overlay').classList.add('open');
 }
-function editAuto(i,d){postsLoaded=false;openModal(d,i);}
+const automationsData = {{ automations|tojson|safe }};
+function editAuto(i){ const d = automationsData[i]; if(!d) return; postsLoaded=false; openModal(d, i); }
 function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
 function selectTrigger(t){
   if(selectedTrigger!==t){ postsLoaded=false; selectedPostIds={}; selectedScope=null; }
