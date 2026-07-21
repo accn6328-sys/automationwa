@@ -2068,15 +2068,40 @@ def discover_ig_user_id():
     return IG_USER_ID
 
 
-def fetch_ig_media(force=False):
+def fetch_ig_media(force=False, owner_id=None):
     global _ig_media_cache, _ig_media_cache_time
+    global _ig_media_caches, _ig_media_cache_times
     global PAGE_ACCESS_TOKEN
-    if not force and _ig_media_cache and (time.time() - _ig_media_cache_time) < POSTS_CACHE_TTL:
-        return _ig_media_cache
-    if not IG_USER_ID:
+    
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    if '_ig_media_caches' not in globals():
+        _ig_media_caches = {}
+    if '_ig_media_cache_times' not in globals():
+        _ig_media_cache_times = {}
+        
+    cache_key = owner_id or "default"
+    if not force and cache_key in _ig_media_caches and (time.time() - _ig_media_cache_times.get(cache_key, 0)) < POSTS_CACHE_TTL:
+        return _ig_media_caches[cache_key]
+        
+    target_token = PAGE_ACCESS_TOKEN
+    target_ig_user_id = IG_USER_ID
+    
+    if owner_id:
+        conn_data = db_execute("SELECT access_token, instagram_business_account_id FROM ig_review_demo_connections WHERE instagram_business_account_id = ?", (owner_id,))
+        if conn_data:
+            target_token = conn_data[0]["access_token"]
+            target_ig_user_id = conn_data[0]["instagram_business_account_id"]
+            
+    if not target_ig_user_id:
         raise Exception("IG_USER_ID is not configured")
         
-    tokens_to_try = [PAGE_ACCESS_TOKEN]
+    tokens_to_try = [target_token]
     tokens_to_try = [t for t in tokens_to_try if t]
     
     last_error = None
@@ -2084,7 +2109,7 @@ def fetch_ig_media(force=False):
         try:
             media = []
             seen_ids = set()
-            next_url = f"{GRAPH_URL}/{IG_USER_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
+            next_url = f"{GRAPH_URL}/{target_ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
             page_count = 0
             while next_url and page_count < 15:
                 resp = requests.get(next_url, timeout=10)
@@ -2120,13 +2145,13 @@ def fetch_ig_media(force=False):
                 next_url = data.get("paging", {}).get("next")
                 page_count += 1
             
-            # Success! Update global config if needed
-            if PAGE_ACCESS_TOKEN != token:
+            # Success! Update global config if needed for default account
+            if not owner_id and PAGE_ACCESS_TOKEN != token:
                 print("[Token Recovery] PAGE_ACCESS_TOKEN was outdated. Recovered using verified fallback token.")
                 PAGE_ACCESS_TOKEN = token
                 
-            _ig_media_cache      = media
-            _ig_media_cache_time = time.time()
+            _ig_media_caches[cache_key] = media
+            _ig_media_cache_times[cache_key] = time.time()
             return media
         except Exception as e:
             last_error = e
@@ -2136,25 +2161,50 @@ def fetch_ig_media(force=False):
     raise last_error
 
 
-def fetch_ig_stories(force=False):
+def fetch_ig_stories(force=False, owner_id=None):
     """
     Pull the currently-active Instagram stories (Graph API only exposes stories
     that haven't expired yet — they disappear from this list after ~24h).
     Used to populate the "Specific Story" picker in the automation builder.
     """
     global _ig_stories_cache, _ig_stories_cache_time
+    global _ig_stories_caches, _ig_stories_cache_times
     global PAGE_ACCESS_TOKEN
-    if not force and _ig_stories_cache and (time.time() - _ig_stories_cache_time) < POSTS_CACHE_TTL:
-        return _ig_stories_cache
-    if not IG_USER_ID:
+    
+    if owner_id is None:
+        try:
+            if has_request_context():
+                owner_id = session.get("connected_ig_id")
+        except RuntimeError:
+            owner_id = None
+            
+    if '_ig_stories_caches' not in globals():
+        _ig_stories_caches = {}
+    if '_ig_stories_cache_times' not in globals():
+        _ig_stories_cache_times = {}
+        
+    cache_key = owner_id or "default"
+    if not force and cache_key in _ig_stories_caches and (time.time() - _ig_stories_cache_times.get(cache_key, 0)) < POSTS_CACHE_TTL:
+        return _ig_stories_caches[cache_key]
+
+    target_token = PAGE_ACCESS_TOKEN
+    target_ig_user_id = IG_USER_ID
+    
+    if owner_id:
+        conn_data = db_execute("SELECT access_token, instagram_business_account_id FROM ig_review_demo_connections WHERE instagram_business_account_id = ?", (owner_id,))
+        if conn_data:
+            target_token = conn_data[0]["access_token"]
+            target_ig_user_id = conn_data[0]["instagram_business_account_id"]
+            
+    if not target_ig_user_id:
         raise Exception("IG_USER_ID is not configured")
 
     try:
         resp = requests.get(
-            f"{GRAPH_URL}/{IG_USER_ID}/stories",
+            f"{GRAPH_URL}/{target_ig_user_id}/stories",
             params={
                 "fields": "id,media_type,media_url,thumbnail_url,timestamp,permalink",
-                "access_token": PAGE_ACCESS_TOKEN,
+                "access_token": target_token,
             },
             timeout=10,
         )
@@ -2173,11 +2223,11 @@ def fetch_ig_stories(force=False):
                 "thumbnail":  item.get("thumbnail_url") or item.get("media_url", ""),
                 "media_type": mtype,
             })
-        _ig_stories_cache      = stories
-        _ig_stories_cache_time = time.time()
+        _ig_stories_caches[cache_key] = stories
+        _ig_stories_cache_times[cache_key] = time.time()
         return stories
     except Exception as e:
-        print(f"[fetch_ig_stories] Failed: {e}")
+        print(f"[fetch_ig_stories] Failed for owner {owner_id}: {e}")
         raise
 
 
@@ -7068,6 +7118,12 @@ INSTAGRAM_HTML = """
 <header>
   <div class="logo">📷 Instagram AutoDM</div>
   <div style="display:flex;align-items:center;gap:16px">
+    <select id="account-switcher" onchange="switchAccount(this.value)" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; border-radius: 8px; padding: 8px 12px; outline: none; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; margin-right: 8px;">
+      <option value="default" {% if not active_account_id %}selected{% endif %} style="background: #1a1f35; color: #fff;">Account: radikikk (Default)</option>
+      {% for conn in connected_accounts %}
+      <option value="{{ conn.instagram_business_account_id }}" {% if active_account_id == conn.instagram_business_account_id %}selected{% endif %} style="background: #1a1f35; color: #fff;">Account: @{{ conn.username }}</option>
+      {% endfor %}
+    </select>
     <button class="btn btn-primary" onclick="openModal()">+ Create Automation</button>
   </div>
 </header>
@@ -7861,6 +7917,20 @@ async function addGlobalKeyword(){const kw=document.getElementById('g-kw').value
 async function deleteKeyword(kw){if(confirm('Delete?')){await fetch('/instagram/ui/keywords/'+encodeURIComponent(kw),{method:'DELETE'});location.reload();}}
 document.getElementById('modal-overlay').onclick=e=>{if(e.target===document.getElementById('modal-overlay'))closeModal();};
 
+async function switchAccount(val){
+  const r = await fetch('/instagram/ui/switch-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instagram_business_account_id: val })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    location.reload();
+  } else {
+    alert('Failed to switch account: ' + (d.error || 'Unknown error'));
+  }
+}
+
 const igDefaultReplies = [
   "Thanks for your comment! \U0001f49b Check your DMs for the details, and don't forget to follow our page so you never miss future updates.",
   "You're awesome! \U0001f64c We've sent you a DM. Make sure to follow our page to stay in the loop.",
@@ -8065,12 +8135,32 @@ def instagram_dashboard():
         .replace('href="/"', 'href="/fb/"')
         .replace('href="/instagram"', 'href="/fb/instagram"')
     )
+    conns = db_execute("SELECT username, instagram_business_account_id FROM ig_review_demo_connections ORDER BY connected_at DESC") or []
+    active_id = session.get("connected_ig_id")
     return render_template_string(
         prefixed_html,
         keywords=load_ig_keywords(),
         automations=load_ig_automations(),
         stats=load_ig_stats(),
+        connected_accounts=conns,
+        active_account_id=active_id
     )
+
+@app.route("/instagram/ui/switch-account", methods=["POST"])
+def instagram_switch_account():
+    target_ig_id = request.json.get("instagram_business_account_id")
+    if not target_ig_id or target_ig_id == "default":
+        session.pop("connected_ig_id", None)
+        session.pop("connected_ig_username", None)
+        return jsonify({"ok": True, "active": "default"})
+    
+    connection = db_execute("SELECT username FROM ig_review_demo_connections WHERE instagram_business_account_id = ?", (target_ig_id,))
+    if connection:
+        session["connected_ig_id"] = target_ig_id
+        session["connected_ig_username"] = connection[0]["username"]
+        return jsonify({"ok": True, "active": connection[0]["username"]})
+    else:
+        return jsonify({"ok": False, "error": "Account not found"}), 404
 
 @app.route("/instagram/ui/fetch-media")
 def ig_fetch_media_api():
