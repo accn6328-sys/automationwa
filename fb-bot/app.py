@@ -7616,6 +7616,7 @@ function updatePreview(){
 }
 
 function openModal(d,idx){
+  generateAutoReplyFields();
   editingIdx=idx!==undefined?idx:-1; currentStep=1; selectedTrigger=null; selectedScope=null; selectedPostIds={}; selectedKwType=null; selectedAction='both'; keywords=[]; postsLoaded=false;
   spWizardButtons = [
     { title: "product site", url: "" },
@@ -7651,11 +7652,11 @@ function openModal(d,idx){
     if(selectedKwType==='specific') document.getElementById('kw-input-area').style.display='block';
     renderTags();
     document.getElementById('auto-name').value=d.name||'';
-    // Populate reply variation fields (support new reply_texts array and legacy single reply)
+    // Populate reply variation fields (support new reply_texts array and legacy single reply, fallback missing to igDefaultReplies)
     const _replyTexts = (d.reply_texts && d.reply_texts.length) ? d.reply_texts : (d.reply ? [d.reply] : []);
     for(let _i=1;_i<=30;_i++){
       const el=document.getElementById('auto-reply-'+_i);
-      if(el) el.value = _replyTexts[_i-1] || '';
+      if(el) el.value = (_replyTexts[_i-1] && _replyTexts[_i-1].trim()) ? _replyTexts[_i-1] : (igDefaultReplies[_i-1] || '');
     }
     document.getElementById('auto-dm').value=d.dm_message||'';
     document.getElementById('auto-delay').value=d.delay_seconds||0;
@@ -7879,10 +7880,9 @@ async function nextStep(){
     const name=document.getElementById('auto-name').value.trim();
     // Collect 30 reply variation fields, filter blanks
     const _replyTextsRaw=Array.from({length:30},(_,i)=>i+1).map(i=>{const el=document.getElementById('auto-reply-'+i);return el?el.value.trim():'';});
-    const replyTexts=_replyTextsRaw.filter(t=>t.length>0);
+    let replyTexts=_replyTextsRaw.filter(t=>t.length>0);
     const hasComment=['comment','live'].includes(selectedTrigger);
-    // Validate: at least 1 required when action involves comment reply
-    if(hasComment&&replyTexts.length===0)return alert('Please enter at least one Reply Variation (Variation 1 is required)');
+    if(hasComment && replyTexts.length===0){ replyTexts = [...igDefaultReplies]; }
     const reply=replyTexts[0]||'';
     const dm=document.getElementById('auto-dm').value.trim();
     const posts=Object.values(selectedPostIds);
