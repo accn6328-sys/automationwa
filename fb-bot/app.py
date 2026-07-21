@@ -8175,14 +8175,18 @@ def instagram_dashboard():
     )
     conns = db_execute("SELECT username, instagram_business_account_id FROM ig_review_demo_connections ORDER BY connected_at DESC") or []
     active_id = session.get("connected_ig_id")
-    return render_template_string(
+    resp = make_response(render_template_string(
         prefixed_html,
         keywords=load_ig_keywords(),
         automations=load_ig_automations(),
         stats=load_ig_stats(),
         connected_accounts=conns,
         active_account_id=active_id
-    )
+    ))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.route("/instagram/ui/switch-account", methods=["POST"])
 def instagram_switch_account():

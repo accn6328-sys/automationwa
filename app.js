@@ -1488,6 +1488,11 @@ app.use('/fb', createProxyMiddleware({
     changeOrigin: true,
     pathRewrite: { '^/fb': '' },
     on: {
+        proxyRes: (proxyRes) => {
+            proxyRes.headers['cache-control'] = 'no-cache, no-store, must-revalidate, max-age=0';
+            proxyRes.headers['pragma'] = 'no-cache';
+            proxyRes.headers['expires'] = '0';
+        },
         error: (err, req, res) => {
             console.error('[FB Proxy] Error:', err.message);
             if (!res.headersSent) {
@@ -1500,6 +1505,11 @@ app.use('/ig', createProxyMiddleware({
     target: `http://127.0.0.1:${FB_BOT_PORT}`,
     changeOrigin: true,
     on: {
+        proxyRes: (proxyRes) => {
+            proxyRes.headers['cache-control'] = 'no-cache, no-store, must-revalidate, max-age=0';
+            proxyRes.headers['pragma'] = 'no-cache';
+            proxyRes.headers['expires'] = '0';
+        },
         error: (err, req, res) => {
             console.error('[IG Proxy] Error:', err.message);
             if (!res.headersSent) {
