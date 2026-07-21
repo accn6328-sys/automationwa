@@ -4424,8 +4424,9 @@ def handle_official_wa_message(msg, contact):
 
 def reply_to_ig_comment(comment_id, message, access_token=None, owner_id=None):
     target_token = access_token or PAGE_ACCESS_TOKEN
+    graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
     resp = requests.post(
-        f"{GRAPH_URL}/{comment_id}/replies",
+        f"{graph_base}/{comment_id}/replies",
         data={"message": message, "access_token": target_token},
         timeout=8,
     )
@@ -4538,8 +4539,9 @@ def perform_ig_dm_send_with_buttons(user_id, text, quick_replies_list, tag=None,
             json_payload["tag"] = tag
             json_payload["messaging_type"] = "MESSAGE_TAG"
             
+        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
         resp = requests.post(
-            f"{GRAPH_URL}/me/messages",
+            f"{graph_base}/me/messages",
             params={"access_token": target_token},
             json=json_payload,
             timeout=8,
@@ -4675,8 +4677,9 @@ def perform_ig_private_reply_send(comment_id, message, quick_replies=None, butto
             if quick_replies:
                 payload["message"]["quick_replies"] = quick_replies
 
+        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
         resp = requests.post(
-            f"{GRAPH_URL}/me/messages",
+            f"{graph_base}/me/messages",
             params={"access_token": target_token},
             json=payload,
             timeout=8,
@@ -4703,8 +4706,9 @@ def perform_ig_dm_send(user_id, message, tag=None, access_token=None, ig_user_id
         if tag:
             json_payload["tag"] = tag
             json_payload["messaging_type"] = "MESSAGE_TAG"
+        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
         resp = requests.post(
-            f"{GRAPH_URL}/me/messages",
+            f"{graph_base}/me/messages",
             params={"access_token": target_token},
             json=json_payload,
             timeout=8,
@@ -4813,8 +4817,9 @@ def perform_ig_buttons_send(recipient_id, text, buttons_list, tag=None, auto_id=
             json_payload["messaging_type"] = "MESSAGE_TAG"
             json_payload["tag"] = tag
             
+        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
         resp = requests.post(
-            f"{GRAPH_URL}/me/messages",
+            f"{graph_base}/me/messages",
             params={"access_token": target_token},
             json=json_payload,
             timeout=8,
@@ -4855,8 +4860,9 @@ def perform_ig_button_template_send(recipient_id, follow_up_message, link_url, l
         if tag:
             json_payload["messaging_type"] = "MESSAGE_TAG"
             json_payload["tag"] = tag
+        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
         resp = requests.post(
-            f"{GRAPH_URL}/me/messages",
+            f"{graph_base}/me/messages",
             params={"access_token": target_token},
             json=json_payload,
             timeout=8,
@@ -8956,9 +8962,17 @@ def ig_test_automation(idx):
     if auto.get("trigger_type") == "story_mention":
         prepend_str = "[TEST STORY MENTION]"
         
+    target_token = PAGE_ACCESS_TOKEN
+    owner_id = session.get("connected_ig_id")
+    if owner_id:
+        conn_data = db_execute("SELECT access_token FROM ig_review_demo_connections WHERE instagram_business_account_id = ?", (owner_id,))
+        if conn_data:
+            target_token = conn_data[0]["access_token"]
+
+    graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
     resp = requests.post(
-        f"{GRAPH_URL}/me/messages",
-        params={"access_token": PAGE_ACCESS_TOKEN},
+        f"{graph_base}/me/messages",
+        params={"access_token": target_token},
         json={"recipient": {"id": target_id}, "message": {"text": f"{prepend_str} — {auto['name']}\n\n{dm_body}"}},
         timeout=8,
     )
