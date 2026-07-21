@@ -430,7 +430,7 @@ def init_sqlite_db():
         try:
             import time
             db_execute(
-                "INSERT OR IGNORE INTO ig_review_demo_connections (username, profile_picture_url, access_token, instagram_business_account_id, connected_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO ig_review_demo_connections (username, profile_picture_url, access_token, instagram_business_account_id, connected_at) VALUES (?, ?, ?, ?, ?)",
                 ("aeye.in", "https://radikikktok.shop/fb/static/aeye_profile.png", aeye_token, aeye_ig_id, time.time()),
                 commit=True
             )
@@ -2138,7 +2138,8 @@ def fetch_ig_media(force=False, owner_id=None):
         try:
             media = []
             seen_ids = set()
-            next_url = f"{GRAPH_URL}/{target_ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
+            graph_base = "https://graph.instagram.com/v19.0" if (token and (token.startswith("IGAA") or token.startswith("IG"))) else GRAPH_URL
+            next_url = f"{graph_base}/{target_ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={token}"
             page_count = 0
             while next_url and page_count < 15:
                 resp = requests.get(next_url, timeout=10)
@@ -10384,7 +10385,8 @@ def fetch_ig_media_for_demo(ig_user_id, access_token):
     try:
         media = []
         seen_ids = set()
-        next_url = f"{GRAPH_URL}/{ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={access_token}"
+        graph_base = "https://graph.instagram.com/v19.0" if (access_token and (access_token.startswith("IGAA") or access_token.startswith("IG"))) else GRAPH_URL
+        next_url = f"{graph_base}/{ig_user_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count&limit=25&access_token={access_token}"
         page_count = 0
         while next_url and page_count < 2:  # limit pages for demo
             resp = requests.get(next_url, timeout=10)
