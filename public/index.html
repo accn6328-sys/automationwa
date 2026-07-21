@@ -635,122 +635,14 @@
         </div>
     </div>
     <div id="tab-insta" class="tab-panel">
-        <!-- Right Main Content Panel (Simplified layout taking full width) -->
-        <div class="sp-main" style="display: flex; flex-direction: column; gap: 20px; min-width: 0; width: 100%;">
-            
-            <!-- Header area -->
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-                <div>
-                    <h1 style="font-size: 24px; font-weight: 700; font-family: 'Outfit', sans-serif;">AutoDM</h1>
-                    <p style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">Manage automated direct message replies to comments, mentions, and stories.</p>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 6px 12px; border-radius: 10px; border: 1px solid var(--border-glass);">
-                        <label for="bulk-auto-count" style="font-size: 13px; color: var(--text-secondary); font-weight: 500;">Automate latest:</label>
-                        <input type="number" id="bulk-auto-count" value="20" min="1" max="100" style="width: 50px; background: transparent; border: none; color: var(--text-primary); font-weight: 600; text-align: center; outline: none;">
-                        <button id="btn-bulk-automate" class="btn" style="background: linear-gradient(135deg, #a855f7, #ec4899); padding: 6px 14px; border-radius: 8px; font-size: 13px;" onclick="runBulkAutomate()">Automate Reels</button>
-                    </div>
-                    <button class="btn" style="background: #3b82f6; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35); padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;" onclick="openCreateIgRuleModal()">+ Create Automation</button>
-                </div>
+        <div class="yt-iframe-wrapper">
+            <div id="insta-loading" class="yt-loading-overlay">
+                <div class="yt-spinner"></div>
+                <div style="color:var(--text-secondary);font-size:14px">Loading Instagram Bot...</div>
             </div>
-
-            <!-- Custom tabs section: Automations, Settings, Link-in-Bio, Comments, Post Scheduler -->
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 4px;">
-                <div style="display: flex; gap: 12px; overflow-x: auto;">
-                    <button id="sp-tab-rules-btn" class="sp-tab-btn active" onclick="switchSpSubTab('rules')">Automations</button>
-                    <button id="sp-tab-settings-btn" class="sp-tab-btn" onclick="switchSpSubTab('settings')">Settings</button>
-                    <button id="sp-tab-bio-btn" class="sp-tab-btn" onclick="switchSpSubTab('bio')">Link-in-Bio Setup</button>
-                    <button id="sp-tab-comments-btn" class="sp-tab-btn" onclick="switchSpSubTab('comments')">Comments Moderation</button>
-                    <button id="sp-tab-scheduler-btn" class="sp-tab-btn" onclick="switchSpSubTab('scheduler')">Post Scheduler</button>
-                    <button id="sp-tab-review-btn" class="sp-tab-btn" onclick="switchSpSubTab('review')">App Review Demo</button>
-                </div>
-                <a href="#" style="font-size: 13px; color: var(--text-secondary); text-decoration: none; display: flex; align-items: center; gap: 6px;" onclick="alert('Support is simulated!')">🎧 Support</a>
-            </div>
-
-            <!-- Subpanel: Automations list & Metrics -->
-            <div id="sp-panel-rules" class="sp-subpanel active" style="display: flex; flex-direction: column; gap: 20px;">
-                <!-- Metrics Cards Grid -->
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%;">
-                    <div class="card" style="margin: 0; padding: 20px; display: flex; flex-direction: column; gap: 8px; background: rgba(15, 23, 42, 0.3); border: 1px solid var(--border-glass); position: relative;">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <span style="font-size: 11.5px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.05em;">✉️ DMs Sent</span>
-                        </div>
-                        <div id="stat-sp-dms" style="font-size: 28px; font-weight: 800; color: #3b82f6;">78.32K</div>
-                        <div style="height: 35px; width: 100%; opacity: 0.65; display: flex; align-items: flex-end; gap: 3px;">
-                            <div style="flex:1; height: 10px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 18px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 12px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 15px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 22px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 28px; background: #3b82f6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 20px; background: #3b82f6; border-radius: 2px;"></div>
-                        </div>
-                    </div>
-
-                    <div class="card" style="margin: 0; padding: 20px; display: flex; flex-direction: column; gap: 8px; background: rgba(15, 23, 42, 0.3); border: 1px solid var(--border-glass); position: relative;">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <span style="font-size: 11.5px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.05em;">✉️ Emails Collected</span>
-                        </div>
-                        <div id="stat-sp-emails" style="font-size: 28px; font-weight: 800; color: #10b981;">0</div>
-                        <div style="height: 35px; width: 100%; opacity: 0.65; display: flex; align-items: flex-end; gap: 3px;">
-                            <div style="flex:1; height: 2px; background: #10b981; border-radius: 2px; width: 100%;"></div>
-                        </div>
-                    </div>
-
-                    <div class="card" style="margin: 0; padding: 20px; display: flex; flex-direction: column; gap: 8px; background: rgba(15, 23, 42, 0.3); border: 1px solid var(--border-glass); position: relative;">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <span style="font-size: 11.5px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.05em;">👤 Followers Gained</span>
-                        </div>
-                        <div id="stat-sp-followers" style="font-size: 28px; font-weight: 800; color: #8b5cf6;">42.51K</div>
-                        <div style="height: 35px; width: 100%; opacity: 0.65; display: flex; align-items: flex-end; gap: 3px;">
-                            <div style="flex:1; height: 8px; background: #8b5cf6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 12px; background: #8b5cf6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 14px; background: #8b5cf6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 18px; background: #8b5cf6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 25px; background: #8b5cf6; border-radius: 2px;"></div>
-                            <div style="flex:1; height: 24px; background: #8b5cf6; border-radius: 2px;"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="sp-actions-bar">
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1; width: 100%;">
-                        <span>🔍</span>
-                        <input type="text" id="sp-rules-search" class="form-input" placeholder="Search automations..." style="background: transparent; border: none; padding: 4px; font-size: 13.5px; box-shadow: none; max-width: 300px;" oninput="filterSpRulesTable()">
-                    </div>
-                    <div class="sp-actions-group">
-                        <button class="btn" style="padding: 6px 12px; font-size: 12.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" onclick="sortSpRulesTable()">⇅ Sort</button>
-                        <button class="btn" style="padding: 6px 12px; font-size: 12.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" onclick="alert('Filtering active automations!')">⚙️ Filter</button>
-                        <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12.5px; margin-right: 4px;" onclick="resetIgStats()">🔄 Reset Stats</button>
-                        <div style="display:inline-flex; align-items:center; gap:6px; margin-right:4px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 3px 8px;">
-                            <span style="font-size:12px; color:var(--text-secondary);">Clear latest:</span>
-                            <input type="number" id="clear-latest-ig-count" value="5" min="1" style="width: 45px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; padding: 2px 4px; color: #fff; text-align: center; font-size: 12px; outline: none;">
-                            <button class="btn btn-danger" style="padding: 3px 8px; font-size: 11.5px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;" onclick="clearLatestIgAutomations()">Clear Rules</button>
-                        </div>
-                        <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12.5px; margin-right: 4px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3);" onclick="clearAllIgAutomations()">🗑️ Clear All Rules</button>
-                        <a href="/fb/instagram/ui/leads/export" class="btn" style="padding: 6px 12px; font-size: 12.5px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">📥 Export Leads</a>
-                    </div>
-                </div>
- 
-                <!-- Automations list structured as a premium table -->
-                <div style="background: rgba(15, 23, 42, 0.2); border: 1px solid var(--border-glass); border-radius: 12px; overflow: hidden; margin-bottom: 12px;">
-                    <div class="sp-rule-grid sp-rule-header">
-                        <div>Automations</div>
-                        <div style="text-align: center;">Followers Gained</div>
-                        <div style="text-align: center;">Runs</div>
-                        <div style="text-align: center;">Button Clicks</div>
-                        <div style="text-align: right;">Status</div>
-                    </div>
-                    <div id="sp-rules-tbody" style="display: flex; flex-direction: column;">
-                        <!-- Rows populated dynamically -->
-                    </div>
-                </div>
-
-                <!-- Pagination controls -->
-                <div id="sp-rules-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 12px; margin-bottom: 24px; flex-wrap: wrap;"></div>
-            </div>on: column;">
-                        <!-- Rows populated dynamically -->
-                    </div>
-                </div>
+            <iframe id="insta-iframe" src="about:blank" data-src="/fb/instagram" title="Instagram AutoDM Bot" onload="onInstaIframeLoad()" allow="clipboard-write"></iframe>
+        </div>
+    </div>>
             </div>
 
             <!-- Subpanel: Settings -->
@@ -1643,6 +1535,7 @@ function formatNumberWithK(num) {
 
 let ytIframeLoaded = false;
 let fbIframeLoaded = false;
+let instaIframeLoaded = false;
 function switchTab(tab) {
     localStorage.setItem('active_tab', tab);
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -1659,8 +1552,10 @@ function switchTab(tab) {
         iframe.src = iframe.dataset.src;
         fbIframeLoaded = true;
     }
-    if (tab === 'insta') {
-        switchSpSubTab('rules');
+    if (tab === 'insta' && !instaIframeLoaded) {
+        const iframe = document.getElementById('insta-iframe');
+        iframe.src = iframe.dataset.src;
+        instaIframeLoaded = true;
     }
 }
 function onYTIframeLoad() {
@@ -1669,6 +1564,10 @@ function onYTIframeLoad() {
 }
 function onFBIframeLoad() {
     const overlay = document.getElementById('fb-loading');
+    if (overlay) { overlay.classList.add('hidden'); setTimeout(() => overlay.style.display = 'none', 400); }
+}
+function onInstaIframeLoad() {
+    const overlay = document.getElementById('insta-loading');
     if (overlay) { overlay.classList.add('hidden'); setTimeout(() => overlay.style.display = 'none', 400); }
 }
 
