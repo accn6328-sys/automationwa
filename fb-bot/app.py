@@ -7728,8 +7728,8 @@ function showStep(n){
     updatePreview();
   }
 }
-let loadedIgPosts = [];
-let currentIgFilter = 'latest';
+var loadedIgPosts = [];
+var currentIgFilter = 'latest';
 
 async function loadPostsGrid(){
   const grid=document.getElementById('posts-grid-modal'); grid.innerHTML='Loading...';
