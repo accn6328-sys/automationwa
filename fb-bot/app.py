@@ -4424,7 +4424,7 @@ def handle_official_wa_message(msg, contact):
 
 def reply_to_ig_comment(comment_id, message, access_token=None, owner_id=None):
     target_token = access_token or PAGE_ACCESS_TOKEN
-    graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
+    graph_base = "https://graph.instagram.com/v22.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
     resp = requests.post(
         f"{graph_base}/{comment_id}/replies",
         data={"message": message, "access_token": target_token},
@@ -4677,13 +4677,25 @@ def perform_ig_private_reply_send(comment_id, message, quick_replies=None, butto
             if quick_replies:
                 payload["message"]["quick_replies"] = quick_replies
 
-        graph_base = "https://graph.instagram.com/v19.0" if (target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))) else GRAPH_URL
-        resp = requests.post(
-            f"{graph_base}/me/messages",
-            params={"access_token": target_token},
-            json=payload,
-            timeout=8,
-        )
+        is_creator_token = target_token and (target_token.startswith("IGAA") or target_token.startswith("IG"))
+        graph_base = "https://graph.instagram.com/v22.0" if is_creator_token else GRAPH_URL
+        
+        if is_creator_token:
+            # Creator accounts: use /{comment_id}/private_replies endpoint
+            # Only simple text message supported — buttons/templates not available for creator
+            simple_msg = message
+            resp = requests.post(
+                f"{graph_base}/{comment_id}/private_replies",
+                data={"message": simple_msg, "access_token": target_token},
+                timeout=8,
+            )
+        else:
+            resp = requests.post(
+                f"{graph_base}/me/messages",
+                params={"access_token": target_token},
+                json=payload,
+                timeout=8,
+            )
         result = resp.json()
         if "message_id" in result:
             bump_ig_stat("dms_sent", owner_id=owner_id)
@@ -4941,65 +4953,97 @@ def ig_comment_polling_daemon():
     while True:
         try:
             conns = db_execute("SELECT username, instagram_business_account_id, access_token FROM ig_review_demo_connections") or []
+            print(f"[IG Polling Daemon] Checking {len(conns)} connection(s)...", flush=True)
             for conn in conns:
                 username = conn["username"]
                 ig_user_id = conn["instagram_business_account_id"]
                 token = conn["access_token"]
-                
-                # Check if it is a Creator account (starts with IGAA or IG)
+
+                # Only poll Creator/Consumer accounts (IGAA tokens)
                 if not (token and (token.startswith("IGAA") or token.startswith("IG"))):
+                    print(f"[IG Polling Daemon] Skipping {username} (not a creator token)", flush=True)
                     continue
-                
+
+                print(f"[IG Polling Daemon] Polling comments for @{username} (ig_id={ig_user_id})", flush=True)
+
+                # Fetch recent media directly via graph.instagram.com
                 try:
-                    media_list = fetch_ig_media(force=True, owner_id=ig_user_id)
+                    graph_base = "https://graph.instagram.com/v22.0"
+                    media_resp = requests.get(
+                        f"{graph_base}/{ig_user_id}/media",
+                        params={"fields": "id,media_type,timestamp", "access_token": token, "limit": 5},
+                        timeout=10
+                    )
+                    media_data = media_resp.json()
+                    if "error" in media_data:
+                        print(f"[IG Polling Daemon] Media fetch error for @{username}: {media_data['error']}", flush=True)
+                        continue
+                    media_items = media_data.get("data", [])
+                    print(f"[IG Polling Daemon] Found {len(media_items)} media items for @{username}", flush=True)
                 except Exception as media_err:
-                    print(f"[IG Polling Daemon] Error fetching media list for {username}: {media_err}", flush=True)
+                    print(f"[IG Polling Daemon] Media request exception for @{username}: {media_err}", flush=True)
                     continue
-                
-                for item in media_list[:5]:
+
+                for item in media_items:
                     media_id = item.get("id")
                     if not media_id:
                         continue
-                    
+
                     try:
-                        graph_base = "https://graph.instagram.com/v19.0"
-                        comments_url = f"{graph_base}/{media_id}/comments?fields=id,text,from,timestamp&limit=10&access_token={token}"
-                        resp = requests.get(comments_url, timeout=8)
-                        if resp.status_code == 200:
-                            comments_data = resp.json().get("data", [])
-                            for comment in comments_data:
-                                comment_id = comment.get("id")
-                                text = comment.get("text") or ""
-                                commenter = comment.get("from", {})
-                                commenter_id = commenter.get("id")
-                                commenter_username = commenter.get("username") or ""
-                                
-                                if not comment_id or not commenter_id:
-                                    continue
-                                if str(commenter_id) == str(ig_user_id) or commenter_username == username:
-                                    continue
-                                
-                                comment_payload = {
-                                    "comment_id": comment_id,
-                                    "text": text,
-                                    "media": {"id": media_id},
-                                    "from": {"id": commenter_id, "username": commenter_username},
-                                    "created_time": comment.get("timestamp")
-                                }
-                                handle_ig_comment(
-                                    comment_payload,
-                                    trigger_type="comment",
-                                    access_token=token,
-                                    ig_user_id=ig_user_id,
-                                    owner_id=ig_user_id
-                                )
+                        # Creator API: comments use 'username' and 'id', NOT 'from'
+                        comments_resp = requests.get(
+                            f"{graph_base}/{media_id}/comments",
+                            params={
+                                "fields": "id,text,username,timestamp,replies{id,text,username,timestamp}",
+                                "access_token": token,
+                                "limit": 20
+                            },
+                            timeout=8
+                        )
+                        comments_data = comments_resp.json()
+                        if "error" in comments_data:
+                            print(f"[IG Polling Daemon] Comments error for media {media_id}: {comments_data['error']}", flush=True)
+                            continue
+
+                        comments = comments_data.get("data", [])
+                        print(f"[IG Polling Daemon]   media={media_id} → {len(comments)} comment(s)", flush=True)
+
+                        for comment in comments:
+                            comment_id = comment.get("id")
+                            text = comment.get("text") or ""
+                            commenter_username = comment.get("username") or ""
+
+                            if not comment_id:
+                                continue
+                            # Skip own account's comments
+                            if commenter_username == username or commenter_username == ig_user_id:
+                                continue
+
+                            # Build a synthetic user_id from username for dedup + DM
+                            # We need the real user id - fetch it
+                            # Use ig_scoped_id if available, else use commenter_username as placeholder
+                            comment_payload = {
+                                "comment_id": comment_id,
+                                "text": text,
+                                "media": {"id": media_id},
+                                "from": {"id": commenter_username, "username": commenter_username},
+                                "created_time": comment.get("timestamp")
+                            }
+                            handle_ig_comment(
+                                comment_payload,
+                                trigger_type="comment",
+                                access_token=token,
+                                ig_user_id=ig_user_id,
+                                owner_id=ig_user_id
+                            )
                     except Exception as comment_err:
-                        print(f"[IG Polling Daemon] Error polling comments for media {media_id} on {username}: {comment_err}", flush=True)
-                        
+                        print(f"[IG Polling Daemon] Comment poll exception for media {media_id}: {comment_err}", flush=True)
+
             time.sleep(15)
         except Exception as e:
-            print(f"[IG Polling Daemon] Exception in loop: {e}", flush=True)
+            print(f"[IG Polling Daemon] Exception in main loop: {e}", flush=True)
             time.sleep(15)
+
 
 def ig_queue_worker():
     print("[IG Worker] Started Instagram queue worker thread.", flush=True)
