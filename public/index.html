@@ -2471,36 +2471,36 @@ function closeIgModal() {
 }
 
 const igwzDefaultReplies = [
-  "Just sent the link to your DMs! Let me know if you got it.",
-  "Check your messages! I just slid the link right into your inbox.",
-  "Sent! You can find the link waiting for you in your messages.",
-  "I just DM’ed you the full details and the link!",
-  "Check your inbox! The link has been sent your way.",
-  "Just dropped the link in your messages. Enjoy!",
-  "The link is officially in your DMs. Check it out!",
-  "Sent you a direct message with the link! Let me know what you think.",
-  "Check your requests! The link is sitting in your inbox right now.",
-  "All set! I just sent the link over via DM.",
-  "Inboxed you the link! 👍",
-  "Sent to your DMs! Check it out.",
-  "Link is in your messages!",
-  "Just sent it over! Check your DMs.",
-  "Sent! Check your inbox.",
-  "DM sent! The link is right there.",
-  "Check your messages! Sent it.",
-  "Link dropped in your DMs. 🙌",
-  "Just DM’ed you!",
-  "Check your inbox—sent you the info!",
-  "Awesome to connect! I just sent the resource link to your DMs.",
-  "So glad you’re interested! Check your DMs for the link.",
-  "The link is on its way to your inbox! Can’t wait to hear your thoughts.",
-  "Just sent you the access link via message. Enjoy the content!",
-  "Check your DMs! Everything you need is right there in your inbox.",
-  "Sent it over! Let me know if that link helps you out.",
-  "You’re all set! I just sent the private link to your messages.",
-  "Check your direct messages. The link is officially delivered!",
-  "Excited for you to check this out! Sent the link to your inbox.",
-  "Just popped into your DMs with the link! Let me know if you need anything else."
+  "Follow us & check your DM, link's there! 🔗",
+  "Hit follow, we just sent you the link in DMs 📩",
+  "Followed yet? Link is waiting in your inbox 💌",
+  "Don't forget to follow — link sent to your DM!",
+  "Follow us and grab the link from your DMs 🛍️",
+  "Sent you the link! Just make sure you're following us first 🙌",
+  "Link's in your DM — follow us so you don't miss the next one!",
+  "Check your inbox 📥 link sent! Follow us for more drops",
+  "Follow + check DM = link unlocked 🔓",
+  "We slid into your DMs with the link! Follow us too 😉",
+  "Link sent to your DMs, don't forget to hit follow!",
+  "Followed us? Link's already in your inbox 💬",
+  "Check your DM — link's there! And go follow us 🚀",
+  "Sent the link your way! Give us a follow while you're at it",
+  "Follow us for more, link is in your DMs now 📲",
+  "DM sent with the link — follow to stay updated!",
+  "Link's in your inbox! Make sure you follow so you get future updates too",
+  "Just dropped the link in your DMs, follow us for more 🔥",
+  "Follow us & swipe to your DMs for the link!",
+  "Sent! Check your DMs for the link, and don't forget to follow 🫶",
+  "Link's on its way to your DM — follow us to stay in the loop",
+  "Go check your inbox, link is there! Follow for more like this",
+  "DM'd you the link 📬 Follow us so you never miss out",
+  "Follow us — link is already sitting in your DMs!",
+  "Sent you the link! A follow would mean a lot 🙏",
+  "Check DMs — link inside! Follow us for daily updates",
+  "Link sent 💯 Follow us to catch future drops too",
+  "We DM'd you the link — go follow us for more!",
+  "Follow us and the link is right there in your inbox",
+  "Sent the link to your DM! Follow along for more 🎯"
 ];
 
 function igwzGenerateReplyInputs() {
@@ -2531,7 +2531,7 @@ function igwzReset() {
     if (el) el.value = igwzDefaultReplies[i - 1] || '';
   }
   
-  document.getElementById('sp-public-reply-toggle').checked = false;
+  document.getElementById('sp-public-reply-toggle').checked = true;
   toggleSpPublicReplyField();
   
   document.getElementById('sp-ask-follow').checked = false;
@@ -2891,13 +2891,13 @@ async function igwzNext() {
     
     const replyToggle = document.getElementById('sp-public-reply-toggle').checked;
     if (replyToggle) {
-      const replies = [];
+      let replies = [];
       for (let i = 1; i <= 30; i++) {
         const val = document.getElementById(`igwz-public-reply-${i}`).value.trim();
         if (val) replies.push(val);
       }
       if (replies.length === 0) {
-        return alert('Please enter at least one public comment reply variation.');
+        replies = [...igwzDefaultReplies];
       }
       igwzData.publicReplyTexts = replies;
       igwzData.publicReply = replies[0];
