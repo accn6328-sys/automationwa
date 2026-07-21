@@ -1524,7 +1524,15 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // ── Proxy /yt/* → Python Flask YT bot ───────────────────────────────────────
 
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
 
 // ── Auth System (HMAC-signed cookie, no extra deps) ─────────────────────────
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'radikikktok2024';
