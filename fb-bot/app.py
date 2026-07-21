@@ -7449,7 +7449,8 @@ document.getElementById('email-capture').onchange=e=>{
 };
 
 ['auto-reply','auto-dm','follow-prompt','email-prompt'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', updatePreview);
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', updatePreview);
 });
 
 function toggleDMTypeButtons() {
