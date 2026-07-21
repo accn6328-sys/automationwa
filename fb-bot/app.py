@@ -7625,10 +7625,10 @@ function openModal(d,idx){
   document.querySelectorAll('.picker-card').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
   const idsToClear = ['auto-name','auto-dm','follow-prompt','email-prompt'];
-  for (let i = 1; i <= 22; i++) idsToClear.push('auto-reply-' + i);
+  for (let i = 1; i <= 30; i++) idsToClear.push('auto-reply-' + i);
   idsToClear.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   if(!d){
-  for (let i = 1; i <= 22; i++) {
+    for (let i = 1; i <= 30; i++) {
       const el = document.getElementById('auto-reply-' + i);
       if (el) el.value = igDefaultReplies[i - 1] || '';
     }
@@ -7653,7 +7653,7 @@ function openModal(d,idx){
     document.getElementById('auto-name').value=d.name||'';
     // Populate reply variation fields (support new reply_texts array and legacy single reply)
     const _replyTexts = (d.reply_texts && d.reply_texts.length) ? d.reply_texts : (d.reply ? [d.reply] : []);
-    for(let _i=1;_i<=22;_i++){
+    for(let _i=1;_i<=30;_i++){
       const el=document.getElementById('auto-reply-'+_i);
       if(el) el.value = _replyTexts[_i-1] || '';
     }
@@ -7998,7 +7998,7 @@ function generateAutoReplyFields() {
   const container = document.getElementById('auto-replies-container');
   if (!container) return;
   container.innerHTML = '';
-  for (let i = 1; i <= 22; i++) {
+  for (let i = 1; i <= 30; i++) {
     const div = document.createElement('div');
     const isRequired = (i === 1);
     const labelText = `Reply Variation ${i}${isRequired ? ' *' : ' (optional)'}`;
