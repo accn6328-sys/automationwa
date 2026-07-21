@@ -4936,6 +4936,71 @@ def _claim_next_ig_queue_task():
         finally:
             conn.close()
 
+def ig_comment_polling_daemon():
+    print("[IG Polling Daemon] Started background comment polling thread.", flush=True)
+    while True:
+        try:
+            conns = db_execute("SELECT username, instagram_business_account_id, access_token FROM ig_review_demo_connections") or []
+            for conn in conns:
+                username = conn["username"]
+                ig_user_id = conn["instagram_business_account_id"]
+                token = conn["access_token"]
+                
+                # Check if it is a Creator account (starts with IGAA or IG)
+                if not (token and (token.startswith("IGAA") or token.startswith("IG"))):
+                    continue
+                
+                try:
+                    media_list = fetch_ig_media(force=True, owner_id=ig_user_id)
+                except Exception as media_err:
+                    print(f"[IG Polling Daemon] Error fetching media list for {username}: {media_err}", flush=True)
+                    continue
+                
+                for item in media_list[:5]:
+                    media_id = item.get("id")
+                    if not media_id:
+                        continue
+                    
+                    try:
+                        graph_base = "https://graph.instagram.com/v19.0"
+                        comments_url = f"{graph_base}/{media_id}/comments?fields=id,text,from,timestamp&limit=10&access_token={token}"
+                        resp = requests.get(comments_url, timeout=8)
+                        if resp.status_code == 200:
+                            comments_data = resp.json().get("data", [])
+                            for comment in comments_data:
+                                comment_id = comment.get("id")
+                                text = comment.get("text") or ""
+                                commenter = comment.get("from", {})
+                                commenter_id = commenter.get("id")
+                                commenter_username = commenter.get("username") or ""
+                                
+                                if not comment_id or not commenter_id:
+                                    continue
+                                if str(commenter_id) == str(ig_user_id) or commenter_username == username:
+                                    continue
+                                
+                                comment_payload = {
+                                    "comment_id": comment_id,
+                                    "text": text,
+                                    "media": {"id": media_id},
+                                    "from": {"id": commenter_id, "username": commenter_username},
+                                    "created_time": comment.get("timestamp")
+                                }
+                                handle_ig_comment(
+                                    comment_payload,
+                                    trigger_type="comment",
+                                    access_token=token,
+                                    ig_user_id=ig_user_id,
+                                    owner_id=ig_user_id
+                                )
+                    except Exception as comment_err:
+                        print(f"[IG Polling Daemon] Error polling comments for media {media_id} on {username}: {comment_err}", flush=True)
+                        
+            time.sleep(15)
+        except Exception as e:
+            print(f"[IG Polling Daemon] Exception in loop: {e}", flush=True)
+            time.sleep(15)
+
 def ig_queue_worker():
     print("[IG Worker] Started Instagram queue worker thread.", flush=True)
     while True:
@@ -10770,6 +10835,7 @@ if __name__ == "__main__":
     threading.Thread(target=ig_scheduler_worker, daemon=True).start()
     threading.Thread(target=ig_token_health_worker, daemon=True).start()
     threading.Thread(target=ig_video_to_shopify_worker, daemon=True).start()
+    threading.Thread(target=ig_comment_polling_daemon, daemon=True).start()
     
     port = int(os.environ.get("FLASK_PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
