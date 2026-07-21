@@ -382,42 +382,153 @@ def add_product_to_collection(product_id, collection_id):
     except Exception as e:
         print(f"[Shopify Collection Assignment Warning] Failed to assign product {product_id} to collection {collection_id}: {e}")
 
-def enforce_pricing_rules(scraped_price_str, ai_price, ai_compare):
-    scraped_val = 0.0
-    if scraped_price_str:
-        cleaned = re.sub(r'[^\d.]', '', str(scraped_price_str))
-        if cleaned:
-            try:
-                scraped_val = float(cleaned)
-            except ValueError:
-                pass
-                
-    retail_val = None
-    if ai_price:
-        cleaned = re.sub(r'[^\d.]', '', str(ai_price))
-        if cleaned:
-            try:
-                retail_val = float(cleaned)
-            except ValueError:
-                pass
-                
-    compare_val = None
-    if ai_compare:
-        cleaned = re.sub(r'[^\d.]', '', str(ai_compare))
-        if cleaned:
-            try:
-                compare_val = float(cleaned)
-            except ValueError:
-                pass
-                
-    min_retail = scraped_val + 200.0
-    if retail_val is None or retail_val < min_retail:
-        retail_val = scraped_val + 250.0
+# ── Tiered Margin Pricing System ──────────────────────────────────────────────
+CATEGORY_MAX_MARGIN = {
+    "electronics_accessories": 0.6,
+    "home_decor": 1.2,
+    "fashion": 1.0,
+    "kitchen": 0.8,
+    "default": 0.8
+}
+
+def get_margin_percent(landed_cost):
+    """
+    Returns a randomized margin percentage based on tiered bands of landed cost.
+    """
+    if landed_cost <= 300:
+        return random.uniform(0.80, 1.20)
+    elif landed_cost <= 800:
+        return random.uniform(0.50, 0.80)
+    elif landed_cost <= 1500:
+        return random.uniform(0.35, 0.50)
+    elif landed_cost <= 3000:
+        return random.uniform(0.25, 0.35)
+    else:
+        return random.uniform(0.15, 0.25)
+
+def get_category_max_margin(category):
+    """
+    Looks up category max margin cap from CATEGORY_MAX_MARGIN with robust fallback.
+    """
+    if not category:
+        return CATEGORY_MAX_MARGIN["default"]
+    cat_str = str(category).lower().strip().replace(" ", "_")
+    if cat_str in CATEGORY_MAX_MARGIN:
+        return CATEGORY_MAX_MARGIN[cat_str]
+    for k, v in CATEGORY_MAX_MARGIN.items():
+        if k != "default" and (k in cat_str or cat_str in k):
+            return v
+    return CATEGORY_MAX_MARGIN["default"]
+
+def calculate_landed_cost(amazon_price, shipping_cost):
+    """
+    Calculates landed cost incorporating shipping cost and a 2.5% payment gateway fee buffer.
+    """
+    return (float(amazon_price) + float(shipping_cost)) * 1.025
+
+def charm_price(price):
+    """
+    Rounds price down to the nearest 10 and adds 9 (e.g. 743 -> 739) for psychological pricing.
+    """
+    val = (int(price) // 10) * 10 - 1
+    return max(9, val)
+
+def clamp_to_market(selling_price, market_median):
+    """
+    Caps the selling price at 120% of the competitor market median if available.
+    """
+    if market_median is not None:
+        try:
+            limit = float(market_median) * 1.20
+            return min(float(selling_price), limit)
+        except (ValueError, TypeError):
+            pass
+    return selling_price
+
+def calculate_compare_at_price(selling_price, landed_cost):
+    """
+    Calculates compare-at price based on randomized multipliers and charms the result.
+    """
+    if landed_cost <= 800:
+        mult = random.uniform(1.35, 1.60)
+    elif landed_cost <= 3000:
+        mult = random.uniform(1.25, 1.40)
+    else:
+        mult = random.uniform(1.15, 1.30)
+    compare_at = float(selling_price) * mult
+    return charm_price(compare_at)
+
+def calculate_price(amazon_cost, shipping_cost, category=None, market_median=None):
+    """
+    Combines landed cost, tiered margin, charm pricing, market clamping, and compare-at calculation.
+    """
+    try:
+        amazon_cost_float = float(amazon_cost)
+    except (ValueError, TypeError):
+        amazon_cost_float = 0.0
+
+    try:
+        shipping_cost_float = float(shipping_cost)
+    except (ValueError, TypeError):
+        shipping_cost_float = 0.0
+
+    landed_cost = calculate_landed_cost(amazon_cost_float, shipping_cost_float)
+    
+    margin = get_margin_percent(landed_cost)
+    max_margin = get_category_max_margin(category)
+    clamped_margin = min(margin, max_margin)
+    
+    selling_price = landed_cost * (1.0 + clamped_margin)
+    selling_price = charm_price(selling_price)
+    
+    if market_median is not None:
+        selling_price = clamp_to_market(selling_price, market_median)
+        selling_price = charm_price(selling_price)
         
-    if compare_val is None or compare_val <= retail_val:
-        compare_val = retail_val + 300.0
+    compare_at_price = calculate_compare_at_price(selling_price, landed_cost)
+    
+    print(f"[Pricing Engine] Category: {category or 'default'}, Landed Cost: {landed_cost:.2f}, "
+          f"Margin Applied: {clamped_margin:.2%} (capped at {max_margin:.2%}), "
+          f"Final Selling Price: {selling_price}, Compare-at Price: {compare_at_price}", flush=True)
+          
+    return selling_price, compare_at_price
+
+def parse_price(price_str):
+    """
+    Cleans a price string and parses it into a float.
+    Handles ranges (takes average) and removes currency symbols and commas.
+    """
+    if not price_str:
+        return None
+    cleaned = re.sub(r'[^\d\.\-]', '', str(price_str))
+    if not cleaned.strip():
+        return None
+    if '-' in cleaned:
+        parts = [p.strip() for p in cleaned.split('-') if p.strip()]
+        try:
+            return sum(float(x) for x in parts) / len(parts)
+        except ValueError:
+            pass
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+def enforce_pricing_rules(scraped_price_str, ai_price, ai_compare, category=None):
+    parsed_scraped = parse_price(scraped_price_str)
+    parsed_ai = parse_price(ai_price)
+    
+    base_cost = parsed_scraped if parsed_scraped is not None else parsed_ai
+    if base_cost is None:
+        base_cost = 999.0
         
-    return int(retail_val), int(compare_val)
+    final_price, final_compare = calculate_price(
+        amazon_cost=base_cost,
+        shipping_cost=0.0,
+        category=category,
+        market_median=None
+    )
+    return int(final_price), int(final_compare)
 
 def create_shopify_product(title, description, image_urls, video_urls, price, compare_price, auto_publish=False):
     embed_html = ''
@@ -659,7 +770,7 @@ def process_single_video(video_path, args):
         )
         
         final_price, final_compare = enforce_pricing_rules(
-            scraped_data.get("price"), ai_price, ai_compare
+            scraped_data.get("price"), ai_price, ai_compare, category=ai_category
         )
         
         print(f"  AI Rewritten Title  : {ai_title[:70]}...")
