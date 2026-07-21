@@ -414,6 +414,21 @@ def init_sqlite_db():
         finally:
             conn.close()
     _migrate_legacy_json_files()
+    
+    # Seed aeye.in connection if credentials exist in env and is not already seeded
+    aeye_token = os.getenv("AEYE_LONG_LIVED_USER_TOKEN") or os.getenv("AEYE_USER_TOKEN")
+    aeye_ig_id = os.getenv("AEYE_IG_USER_ID")
+    if aeye_token and aeye_ig_id:
+        try:
+            import time
+            db_execute(
+                "INSERT OR IGNORE INTO ig_review_demo_connections (username, profile_picture_url, access_token, instagram_business_account_id, connected_at) VALUES (?, ?, ?, ?, ?)",
+                ("aeye.in", "https://radikikktok.shop/fb/static/aeye_profile.png", aeye_token, aeye_ig_id, time.time()),
+                commit=True
+            )
+            print("[Database Seeding] Seeded aeye.in account connection successfully.", flush=True)
+        except Exception as seed_err:
+            print(f"[Database Seeding] Error seeding aeye.in: {seed_err}", flush=True)
 
 def _migrate_legacy_json_files():
     # 1. ig_automations.json
